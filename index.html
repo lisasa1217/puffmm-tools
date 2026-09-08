@@ -49,6 +49,9 @@
 <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx-preview@0.4.0/dist/docx-preview.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap');
 
@@ -605,9 +608,9 @@
     <div>
       <div class="section-label">📄 上傳勞報單</div>
       <div id="uploadZone" class="upload-zone">
-        <input type="file" id="pdfInput" accept=".pdf,.xlsx,.xls" />
+        <input type="file" id="pdfInput" accept=".pdf,.docx,.xlsx,.xls" />
         <span class="upload-icon">📂</span>
-        <p>支援 PDF 或 Excel 檔案<br>或 <span class="accent">點擊選取檔案</span></p>
+        <p>支援 PDF、Word 或 Excel 檔案<br>或 <span class="accent">點擊選取檔案</span></p>
       </div>
       <div id="fileInfo" style="display:none; margin-top:10px;"></div>
     </div>
@@ -1175,9 +1178,63 @@
     if (e.target.files[0]) handleFile(e.target.files[0]);
   });
 
+  let isConvertedDoc = false; // true when originalArrayBuffer was generated from a Word file
+
+  // ── Word (.docx) → 圖片式 PDF 轉換 ─────────────────────────
+  // docx-preview 把整份文件排版成一頁一頁的 <section class="docx">，
+  // 每個 section 的 inline style.width/height 單位是 "pt"（跟 PDF 的
+  // point 是同一個單位），所以可以直接拿來當作輸出 PDF 的頁面尺寸，
+  // 不用再換算。用 html2canvas 把每一頁拍成圖片後，塞進 pdf-lib 產生
+  // 的新 PDF 裡，後面所有「上傳 PDF 之後」的流程（手動定位、下載、
+  // 分享）就完全不用修改，直接沿用。
+  async function convertDocxToPdfBytes(arrayBuffer) {
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-99999px;top:0;background:#fff;';
+    document.body.appendChild(holder);
+
+    try {
+      await docx.renderAsync(arrayBuffer, holder, holder, {
+        inWrapper: true,
+        breakPages: true,
+        experimental: true,
+      });
+
+      const pages = holder.querySelectorAll('.docx-wrapper > section.docx');
+      if (!pages.length) throw new Error('docx-preview 未產生任何頁面');
+
+      const { PDFDocument } = PDFLib;
+      const newPdf = await PDFDocument.create();
+      const renderScale = 2; // 拍照解析度，數字越大字越清楚但檔案越大
+
+      for (const pageEl of pages) {
+        const wPt = parseFloat(pageEl.style.width) || 595.28;  // fallback ≈ A4
+        const hPt = parseFloat(pageEl.style.height) || 841.89;
+
+        const canvas = await html2canvas(pageEl, {
+          scale: renderScale,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+        });
+
+        const imgBytes = Uint8Array.from(
+          atob(canvas.toDataURL('image/png').split(',')[1]),
+          c => c.charCodeAt(0)
+        );
+        const embImg = await newPdf.embedPng(imgBytes);
+        const pg = newPdf.addPage([wPt, hPt]);
+        pg.drawImage(embImg, { x: 0, y: 0, width: wPt, height: hPt });
+      }
+
+      return await newPdf.save();
+    } finally {
+      document.body.removeChild(holder);
+    }
+  }
+
   async function handleFile(file) {
     fileName = file.name;
     showFileInfo(file.name);
+    isConvertedDoc = false;
 
     const arrayBuffer = await file.arrayBuffer();
     originalArrayBuffer = arrayBuffer.slice(0);
@@ -1193,6 +1250,16 @@
           text += content.items.map(s => s.str).join(' ') + '\n';
         }
         pdfText = text;
+      } else if (ext === 'docx') {
+        showFileInfo(file.name, '正在轉換 Word 檔，請稍候…');
+        const converted = await convertDocxToPdfBytes(arrayBuffer);
+        originalArrayBuffer = converted;
+        isConvertedDoc = true;
+        pdfText = '';
+        showFileInfo(file.name);
+      } else if (ext === 'doc') {
+        showError('偵測到舊版 .doc 檔案，請在 Word 用「另存新檔」存成 .docx 格式後再上傳。');
+        return;
       } else if (ext === 'xlsx' || ext === 'xls') {
         // Excel extraction
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
@@ -1204,16 +1271,21 @@
         });
         pdfText = text;
       } else {
-        showError('不支援此檔案格式，請上傳 PDF 或 Excel（.xlsx/.xls）檔案。');
+        showError('不支援此檔案格式，請上傳 PDF、Word（.docx）或 Excel（.xlsx/.xls）檔案。');
         return;
       }
       document.getElementById('manualBtn').disabled = false;
     } catch(e) {
-      showError('無法讀取檔案，請確認檔案未加密或損壞。');
+      console.error(e);
+      if (ext === 'docx') {
+        showError('Word 檔轉換失敗，請確認檔案未加密或損壞，或嘗試另存新檔後再上傳。');
+      } else {
+        showError('無法讀取檔案，請確認檔案未加密或損壞。');
+      }
     }
   }
 
-  function showFileInfo(name) {
+  function showFileInfo(name, note) {
     const zone = document.getElementById('uploadZone');
     zone.style.display = 'none';
     const info = document.getElementById('fileInfo');
@@ -1221,7 +1293,7 @@
     info.innerHTML = `
       <div class="file-info">
         <span>📄</span>
-        <span class="fname">${name}</span>
+        <span class="fname">${name}${note ? ' · ' + note : ''}</span>
         <span class="remove" onclick="removeFile()">✕</span>
       </div>`;
   }
@@ -1229,6 +1301,7 @@
   function removeFile() {
     pdfText = '';
     fileName = '';
+    isConvertedDoc = false;
     document.getElementById('uploadZone').style.display = 'block';
     document.getElementById('fileInfo').style.display = 'none';
     document.getElementById('manualBtn').disabled = true;
@@ -1240,8 +1313,8 @@
     document.getElementById('mainPanel').innerHTML = `
       <div class="empty-state" id="emptyState">
         <div class="big">📋</div>
-        <h2>上傳勞報單 PDF 開始使用</h2>
-        <p>AI 會讀取 PDF 內容，判斷每個欄位，並自動帶入你的個人資料，讓你直接複製貼上或對照填寫。</p>
+        <h2>上傳勞報單開始使用</h2>
+        <p>支援 PDF、Word（.docx）或 Excel 檔案。系統會讀取內容，判斷每個欄位，並自動帶入你的個人資料，讓你直接複製貼上或對照填寫。</p>
       </div>`;
   }
 
@@ -1302,6 +1375,14 @@
   let _lastPdfBytes = null;
   let _lastPdfName = '';
 
+  // Word 檔轉出來的一律是圖片式 PDF，檔名副檔名要跟著換成 .pdf，
+  // 不然使用者會以為下載到的還是 .docx。
+  function outputFileName() {
+    const base = '已填寫_' + fileName;
+    if (isConvertedDoc) return base.replace(/\.(docx?|DOCX?)$/, '') + '.pdf';
+    return base;
+  }
+
   function downloadBytes(bytes, name) {
     _lastPdfBytes = bytes;
     _lastPdfName = name;
@@ -1347,7 +1428,7 @@
         const val = matchField(field.getName(), profile);
         if (val) { try { field.setText(val); } catch(e) {} }
       }
-      downloadBytes(await pdfDoc.save(), '已填寫_' + fileName);
+      downloadBytes(await pdfDoc.save(), outputFileName());
     } else {
       await fillCanvas();
     }
@@ -1425,7 +1506,7 @@
       pg.drawImage(embImg, { x: 0, y: 0, width: orig.width, height: orig.height });
     }
 
-    downloadBytes(await newPdf.save(), '已填寫_' + fileName);
+    downloadBytes(await newPdf.save(), outputFileName());
     if (btn) { btn.textContent = '⬇ 填入並下載 PDF'; btn.disabled = false; }
   }
 
