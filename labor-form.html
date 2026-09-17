@@ -28,14 +28,11 @@
   → 點 Add New Project → 選剛才建的 repo → Deploy
   → 完成後會得到一個網址，例如 https://my-labor-form.vercel.app
 
-步驟 5：設定密碼
-  → 第一次開啟網址時，頁面會要求設定自己的密碼
-  → 設定後存在瀏覽器，下次開啟需要輸入這個密碼
-
 【注意事項】
-- 這個頁面有密碼保護，但是前端保護，技術人員可以從原始碼繞過
+- 2026-09-17 起這個頁面沒有密碼保護了（使用者確認不需要），任何拿到
+  網址的人都能直接開啟。如果之後想加回密碼，參考 git 歷史裡 pwGate
+  那段 div + script（在拿掉之前的 commit 裡）
 - 個人資料（姓名、身分證、帳號等）只存在自己的瀏覽器，不會上傳
-- 若要更換密碼：開啟瀏覽器開發者工具 → Console → 輸入 localStorage.removeItem('lbs_pw') → 重新整理
 
 【如果遇到問題，可以把這個檔案再貼給 Claude 說明問題】
 ==========================================================
@@ -515,85 +512,6 @@
 </head>
 <body>
 
-<div id="pwGate" style="position:fixed;inset:0;z-index:99999;background:#e8e8e8;display:flex;align-items:center;justify-content:center;font-family:'Noto Sans TC',sans-serif;">
-  <div style="background:#fff;border-radius:16px;padding:40px 32px 32px;box-shadow:0 4px 32px rgba(0,0,0,0.12);width:90%;max-width:340px;text-align:center;border-top:4px solid #fbcd2c;">
-    <div style="width:44px;height:44px;background:#1e5929;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbcd2c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-    </div>
-    <div style="font-size:18px;font-weight:700;color:#1a1a1a;margin-bottom:4px;">勞報單填寫助手</div>
-    <div style="font-size:13px;color:#999;margin-bottom:24px;">請輸入密碼以繼續</div>
-    <div style="position:relative;margin-bottom:8px;">
-      <input id="pwInput" type="password" placeholder="輸入密碼" autocomplete="current-password"
-        style="width:100%;box-sizing:border-box;padding:12px 44px 12px 16px;border:1.5px solid #ddd;border-radius:10px;font-size:15px;outline:none;background:#fafafa;color:#1a1a1a;font-family:'Noto Sans TC',sans-serif;transition:border-color 0.2s;"
-        onkeydown="if(event.key==='Enter')checkPw()"
-        onfocus="this.style.borderColor='#1e5929'" onblur="this.style.borderColor='#ddd'">
-      <button id="pwEyeBtn" onclick="togglePwEye()" type="button"
-        style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;line-height:1;touch-action:manipulation;">
-        <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-      </button>
-    </div>
-    <div id="pwErr" style="font-size:12px;color:#e05555;min-height:18px;margin-bottom:10px;text-align:left;padding-left:2px;"></div>
-    <button onclick="checkPw()"
-      style="width:100%;padding:13px;background:#1e5929;color:#fbcd2c;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.04em;transition:background 0.15s;"
-      onmouseover="this.style.background='#174d22'" onmouseout="this.style.background='#1e5929'">
-      進入
-    </button>
-  </div>
-</div>
-
-<script>
-(function(){
-  const TITLE   = document.querySelector('#pwGate [style*="font-size:18px"]');
-  const HINT    = document.querySelector('#pwGate [style*="font-size:13px"][style*="color:#999"]');
-  const SUBMIT  = document.querySelector('#pwGate button[onclick="checkPw()"]');
-
-  function unlock(){
-    sessionStorage.setItem('lbs_auth','1');
-    document.getElementById('pwGate').style.display='none';
-  }
-
-  // Already authenticated this session
-  if(sessionStorage.getItem('lbs_auth')==='1'){ unlock(); return; }
-
-  const savedPw = localStorage.getItem('lbs_pw');
-
-  if(!savedPw){
-    // First time: ask user to create a password
-    if(HINT)    HINT.textContent = '第一次使用，請設定你的密碼';
-    if(SUBMIT)  SUBMIT.textContent = '設定密碼';
-    window.checkPw = function(){
-      const v = document.getElementById('pwInput').value.trim();
-      if(v.length < 3){
-        document.getElementById('pwErr').textContent = '密碼至少 3 個字元';
-        return;
-      }
-      localStorage.setItem('lbs_pw', v.toLowerCase());
-      unlock();
-    };
-  } else {
-    // Has password: verify
-    if(HINT)    HINT.textContent = '請輸入密碼以繼續';
-    if(SUBMIT)  SUBMIT.textContent = '進入';
-    window.checkPw = function(){
-      const v = document.getElementById('pwInput').value.toLowerCase().trim();
-      if(v === savedPw){
-        unlock();
-      } else {
-        document.getElementById('pwErr').textContent = '密碼錯誤，請再試一次';
-        document.getElementById('pwInput').value = '';
-        document.getElementById('pwInput').focus();
-      }
-    };
-  }
-
-  window.togglePwEye = function(){
-    const inp = document.getElementById('pwInput');
-    inp.type = inp.type === 'password' ? 'text' : 'password';
-    document.getElementById('pwEyeBtn').querySelector('svg').style.stroke = inp.type === 'text' ? '#1e5929' : '#aaa';
-  };
-})();
-</script>
-
 <header>
   <a href="/" style="display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;" title="回工具首頁">
     <div class="logo-dot"></div>
@@ -697,7 +615,6 @@
         <div id="saveBadge" class="save-badge">資料儲存於瀏覽器本機</div>
       </div>
     </div>
-
 
     <!-- ID CARD -->
     <div>
@@ -2340,7 +2257,6 @@
       rh.removeEventListener('pointercancel', onUp);
     }
   }
-
 
   async function editorChangePage(dir) {
     if (!editorPdf) return;
