@@ -4,18 +4,27 @@
 ==========================================================
 這是「工作工具系統」的入口首頁，跟 puffmm-tools 這個 repo 下的
 其他 .html 檔案（labor-form.html、shorturl.html）是同一個 Vercel
-專案的不同頁面，靠 vercel.json 的 cleanUrls 讓網址可以是
-/labor-form、/shorturl（不用打 .html）。
+專案的不同頁面。網址靠 vercel.json 的 legacy "routes" 設定，
+讓 /labor-form、/shorturl 對應到 labor-form.html / shorturl.html，
+其他任何路徑（短碼）都 fallback 回這個 index.html。
+⚠️ 這個專案曾經試過新式 "rewrites"+"cleanUrls" 做萬用字元 fallback，
+   完全沒生效（短碼一律 404），後來改用舊式 "routes" 才成功，
+   之後不要再改回 rewrites。
 
-短網址功能（shorturl.html）額外需要一個 Supabase 專案：
+短網址功能（shorturl.html）額外需要一個 Supabase 專案（已設定好）：
   - 資料表 short_links (code text primary key, url text, created_at, clicks)
-  - shorturl.html 檔案開頭有 SUPABASE_URL / SUPABASE_ANON_KEY 兩個常數要填
-  - 短碼被打開時（例如 /abc123），vercel.json 會把它 rewrite 回這個
-    index.html，靠下面 <script> 判斷網址路徑不是已知頁面時，
+  - 這個檔案跟 shorturl.html 開頭都有 SUPABASE_URL / SUPABASE_ANON_KEY
+  - 短碼被打開時（例如 /abc123），vercel.json 會把它 route 回這個
+    index.html，靠最下面的 <script> 判斷網址路徑不是已知頁面時，
     去 Supabase 查短碼、找到就跳轉過去。
 
 密碼保護沿用 labor-form.html 同一套（localStorage: lbs_pw，
 sessionStorage: lbs_auth），因為同源，所有頁面共用同一個密碼。
+
+2026-09-17：首頁重新設計過（原本的版本被使用者說「很醜」），
+改成有 hero 區塊 + 頂部分類頁籤 + 漸層圖示卡片的版本。
+之後如果要再改版，維持這個檔案的 :root 顏色變數就好，
+不要再回去用左側純文字選單的舊版樣式。
 ==========================================================
 -->
 <!DOCTYPE html>
@@ -26,7 +35,7 @@ sessionStorage: lbs_auth），因為同源，所有頁面共用同一個密碼�
 <title>泡芙與媽 工具箱</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 
   :root {
     --bg: #fffae0;
@@ -34,6 +43,7 @@ sessionStorage: lbs_auth），因為同源，所有頁面共用同一個密碼�
     --surface2: #fff5c8;
     --border: #f0d96e;
     --accent: #1e5929;
+    --accent-light: #2f7a3d;
     --accent2: #fbcd2c;
     --text: #1a2e10;
     --muted: #7a8c3a;
@@ -47,118 +57,165 @@ sessionStorage: lbs_auth），因為同源，所有頁面共用同一個密碼�
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
   }
 
-  header {
-    border-bottom: 1px solid var(--border);
-    padding: 20px 32px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    background: var(--surface);
+  a { color: inherit; }
+
+  /* ── HERO ─────────────────────────────────────────── */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(160deg, var(--accent) 0%, #14401d 100%);
+    color: #fff;
+    padding: 44px 32px 56px;
   }
-  .logo-dot {
-    width: 10px; height: 10px;
+  .hero::before, .hero::after {
+    content: '';
+    position: absolute;
     border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 8px rgba(30,89,41,0.4);
+    background: var(--accent2);
+    opacity: 0.14;
   }
-  header h1 {
+  .hero::before { width: 260px; height: 260px; top: -120px; right: -60px; }
+  .hero::after  { width: 160px; height: 160px; bottom: -80px; right: 18%; opacity: 0.1; }
+
+  .hero-inner { position: relative; max-width: 980px; margin: 0 auto; }
+  .brand-row { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+  .brand-mark {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: var(--accent2);
+    display: flex; align-items: center; justify-content: center;
     font-size: 16px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    color: var(--text);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
   }
-  header span {
-    font-size: 12px;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-    margin-left: auto;
+  .brand-row span {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.85);
   }
 
-  .layout {
-    display: grid;
-    grid-template-columns: 220px 1fr;
-    min-height: calc(100vh - 61px);
+  .hero h1 {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
   }
-  .cat-nav {
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    padding: 24px 16px;
-  }
-  .cat-label {
-    font-size: 11px;
-    color: var(--muted);
-    letter-spacing: 0.1em;
-    margin-bottom: 10px;
-    padding-left: 8px;
-  }
-  .cat-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: none;
-    background: var(--surface2);
-    color: var(--text);
+  .hero p {
     font-size: 14px;
-    font-weight: 600;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
+    color: rgba(255,255,255,0.72);
+    max-width: 440px;
+    line-height: 1.6;
   }
 
-  .main { padding: 36px 40px; }
-  .main h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-  .main .sub { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+  /* ── CATEGORY TABS ────────────────────────────────── */
+  .cat-bar {
+    max-width: 980px;
+    margin: -26px auto 0;
+    padding: 0 32px;
+    position: relative;
+    z-index: 2;
+    display: flex;
+    gap: 10px;
+  }
+  .cat-tab {
+    display: flex; align-items: center; gap: 7px;
+    padding: 11px 20px;
+    border-radius: 999px;
+    border: none;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 6px 20px rgba(30,89,41,0.16);
+  }
+  .cat-tab.active {
+    background: var(--accent2);
+    color: var(--text);
+  }
+  .cat-tab .count {
+    font-size: 11px; font-weight: 700;
+    color: var(--muted);
+    background: var(--surface2);
+    border-radius: 999px;
+    padding: 1px 7px;
+  }
+  .cat-tab.active .count { background: rgba(26,46,16,0.12); color: var(--text); }
+
+  /* ── MAIN ─────────────────────────────────────────── */
+  main { max-width: 980px; margin: 0 auto; padding: 44px 32px 80px; }
+
+  .section-head { margin-bottom: 22px; }
+  .section-head h2 { font-size: 19px; font-weight: 800; margin-bottom: 4px; }
+  .section-head p { font-size: 13px; color: var(--muted); }
 
   .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 18px;
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+    gap: 20px;
   }
+
   .card {
+    position: relative;
     background: var(--surface);
-    border: 1.5px solid var(--border);
-    border-radius: 16px;
-    padding: 24px;
+    border-radius: 20px;
+    padding: 26px 24px 24px;
     text-decoration: none;
     color: var(--text);
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    gap: 12px;
+    border: 1px solid rgba(240,217,110,0.6);
+    box-shadow: 0 1px 2px rgba(30,89,41,0.04), 0 10px 24px rgba(30,89,41,0.05);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
   }
   .card:hover {
-    transform: translateY(-2px);
-    border-color: var(--accent);
-    box-shadow: 0 8px 24px rgba(30,89,41,0.12);
+    transform: translateY(-3px);
+    box-shadow: 0 16px 32px rgba(30,89,41,0.14);
   }
   .card .icon {
-    width: 42px; height: 42px;
-    border-radius: 11px;
-    background: var(--accent);
+    width: 48px; height: 48px;
+    border-radius: 14px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 20px;
+    font-size: 23px;
+    color: #fff;
   }
-  .card h3 { font-size: 15px; font-weight: 700; }
-  .card p { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+  .card .icon.g1 { background: linear-gradient(135deg, #1e5929, #3f9153); }
+  .card .icon.g2 { background: linear-gradient(135deg, #d99c00, #fbcd2c); }
+
+  .card h3 { font-size: 16px; font-weight: 800; }
+  .card p { font-size: 12.5px; color: var(--muted); line-height: 1.55; flex: 1; }
   .card .go {
-    margin-top: 6px;
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 12.5px;
+    font-weight: 800;
     color: var(--accent);
-    display: flex; align-items: center; gap: 4px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .card .go svg { transition: transform 0.16s ease; }
+  .card:hover .go svg { transform: translateX(3px); }
+
+  .card.soon {
+    background: var(--surface2);
+    border-style: dashed;
+    box-shadow: none;
+    opacity: 0.75;
+  }
+  .card.soon:hover { transform: none; box-shadow: none; }
+  .card.soon .icon { background: var(--border); color: var(--muted); }
+  .card.soon .go { color: var(--muted); }
+
+  footer {
+    max-width: 980px; margin: 0 auto; padding: 0 32px 40px;
+    font-size: 11.5px; color: var(--muted); font-family: 'DM Mono', monospace;
   }
 
   @media (max-width: 640px) {
-    .layout { grid-template-columns: 1fr; }
-    .cat-nav { border-right: none; border-bottom: 1px solid var(--border); display:flex; gap:8px; padding:14px 16px; overflow-x:auto; }
-    .cat-label { display:none; }
-    .cat-btn { width:auto; white-space:nowrap; }
-    .main { padding: 24px 18px; }
+    .hero { padding: 32px 20px 46px; }
+    .hero h1 { font-size: 24px; }
+    .cat-bar { padding: 0 20px; overflow-x: auto; }
+    main { padding: 36px 20px 60px; }
+    footer { padding: 0 20px 30px; }
   }
 </style>
 </head>
@@ -192,7 +249,6 @@ sessionStorage: lbs_auth），因為同源，所有頁面共用同一個密碼�
 
 <script>
 (function(){
-  const TITLE   = document.querySelector('#pwGate [style*="font-size:18px"]');
   const HINT    = document.querySelector('#pwGate [style*="font-size:13px"][style*="color:#999"]');
   const SUBMIT  = document.querySelector('#pwGate button[onclick="checkPw()"]');
 
@@ -241,43 +297,61 @@ sessionStorage: lbs_auth），因為同源，所有頁面共用同一個密碼�
 </script>
 
 <div id="hubRoot">
-  <header>
-    <div class="logo-dot"></div>
-    <h1>泡芙與媽 工具箱</h1>
-    <span>v1.0 · 個人工作小工具</span>
-  </header>
-
-  <div class="layout">
-    <nav class="cat-nav">
-      <div class="cat-label">分類</div>
-      <button class="cat-btn">🛠 工具</button>
-    </nav>
-
-    <main class="main">
-      <h2>🛠 工具</h2>
-      <div class="sub">目前有這些小工具，點卡片進入</div>
-      <div class="cards">
-        <a class="card" href="/labor-form">
-          <div class="icon">📋</div>
-          <h3>勞報單填寫助手</h3>
-          <p>上傳廠商給的勞報單（PDF / Word / Excel），自動帶入你的個人資料、身分證、存摺、簽名，填好直接下載或傳 LINE。</p>
-          <div class="go">開啟工具 →</div>
-        </a>
-        <a class="card" href="/shorturl">
-          <div class="icon">🔗</div>
-          <h3>縮短網址產生器</h3>
-          <p>貼上一長串網址，產生一個好記、好分享的短連結，點開會自動跳轉回原始網址。</p>
-          <div class="go">開啟工具 →</div>
-        </a>
+  <div class="hero">
+    <div class="hero-inner">
+      <div class="brand-row">
+        <div class="brand-mark">🧸</div>
+        <span>PUFF &amp; MOM · 工作工具箱</span>
       </div>
-    </main>
+      <h1>嗨，需要用哪個工具？</h1>
+      <p>把平常要用的小工具都收在這裡，密碼一次輸入，全部通用。</p>
+    </div>
   </div>
+
+  <div class="cat-bar">
+    <button class="cat-tab active">🛠️ 工具 <span class="count">2</span></button>
+  </div>
+
+  <main>
+    <div class="section-head">
+      <h2>🛠️ 工具</h2>
+      <p>點卡片直接開啟</p>
+    </div>
+
+    <div class="cards">
+      <a class="card" href="/labor-form">
+        <div class="icon g1">📋</div>
+        <h3>勞報單填寫助手</h3>
+        <p>上傳廠商給的勞報單（PDF / Word / Excel），自動帶入姓名、身分證、存摺、簽名，填好直接下載或傳 LINE。</p>
+        <div class="go">開啟工具
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </div>
+      </a>
+
+      <a class="card" href="/shorturl">
+        <div class="icon g2">🔗</div>
+        <h3>縮短網址產生器</h3>
+        <p>貼上一長串網址，產生一個好記、好分享的短連結，點開會自動跳轉回原始網址。</p>
+        <div class="go">開啟工具
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </div>
+      </a>
+
+      <div class="card soon">
+        <div class="icon">✨</div>
+        <h3>之後想加什麼？</h3>
+        <p>這裡還可以放更多小工具，想到需要什麼再跟 Claude 說一聲就好。</p>
+        <div class="go">敬請期待</div>
+      </div>
+    </div>
+  </main>
+
+  <footer>v1.0 · 泡芙與媽 工具箱</footer>
 </div>
 
 <!--
   短碼跳轉：如果網址路徑不是「/」也不是已知頁面（labor-form、shorturl），
   就當作是短網址代碼，去 Supabase 查詢並跳轉。
-  ⚠️ 這裡的 SUPABASE_URL / SUPABASE_ANON_KEY 要填好之後這段才會動。
 -->
 <script>
 (async function(){
@@ -288,9 +362,6 @@ sessionStorage: lbs_auth），因為同源，所有頁面共用同一個密碼�
   const KNOWN_PAGES = ['', 'labor-form', 'shorturl', 'index'];
   if (KNOWN_PAGES.includes(path)) return; // normal hub page, do nothing
 
-  if (SUPABASE_URL.startsWith('PLACEHOLDER')) return; // not configured yet
-
-  // Hide hub, show a small "跳轉中" state while we look the code up
   document.getElementById('hubRoot').innerHTML = `
     <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;font-family:'Noto Sans TC',sans-serif;color:#1a2e10;">
       <div style="font-size:15px;">🔗 跳轉中…</div>
@@ -300,7 +371,7 @@ sessionStorage: lbs_auth），因為同源，所有頁面共用同一個密碼�
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data, error } = await sb.from('short_links').select('url, clicks').eq('code', path).single();
     if (error || !data) throw new Error('not found');
-    sb.from('short_links').update({ clicks: (data.clicks || 0) + 1 }).eq('code', path); // best-effort click count, not awaited
+    sb.from('short_links').update({ clicks: (data.clicks || 0) + 1 }).eq('code', path); // best-effort, not awaited
     location.replace(data.url);
   } catch (e) {
     document.getElementById('hubRoot').innerHTML = `
