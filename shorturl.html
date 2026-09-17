@@ -1,0 +1,331 @@
+<!--
+==========================================================
+  縮短網址產生器 — 給 Claude 讀的部署說明
+==========================================================
+需要一個 Supabase 專案，資料表：
+
+  create table short_links (
+    code text primary key,
+    url text not null,
+    created_at timestamptz default now(),
+    clicks int default 0
+  );
+  alter table short_links enable row level security;
+  create policy "anyone can read"   on short_links for select using (true);
+  create policy "anyone can insert" on short_links for insert with check (true);
+  create policy "anyone can update" on short_links for update using (true);
+
+下面 SUPABASE_URL / SUPABASE_ANON_KEY 兩個常數要填成實際值，
+這頁才能真的存短網址進資料庫。填之前這頁會顯示「尚未設定」提示。
+
+短網址打開時的跳轉邏輯寫在 index.html 裡（不是這一頁），
+因為短碼網址（例如 /abc123）會被 vercel.json rewrite 回首頁去查表。
+==========================================================
+-->
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>縮短網址產生器</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #fffae0;
+    --surface: #ffffff;
+    --surface2: #fff5c8;
+    --border: #f0d96e;
+    --accent: #1e5929;
+    --accent2: #fbcd2c;
+    --text: #1a2e10;
+    --muted: #7a8c3a;
+    --danger: #e05555;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 20px 32px;
+    display: flex; align-items: center; gap: 14px;
+    background: var(--surface);
+  }
+  header a { display:flex; align-items:center; gap:14px; text-decoration:none; color:inherit; }
+  .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(30,89,41,0.4); }
+  header h1 { font-size: 16px; font-weight: 500; letter-spacing: 0.08em; }
+  header span { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; margin-left: auto; }
+
+  .wrap { max-width: 640px; margin: 0 auto; padding: 40px 20px 80px; }
+  .card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 16px; padding: 28px; }
+  .card + .card { margin-top: 20px; }
+  label { display:block; font-size:12.5px; font-weight:700; color: var(--muted); margin-bottom:6px; }
+  input[type=text], input[type=url] {
+    width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px;
+    font-size:14px; font-family:inherit; background: var(--surface2); color: var(--text); outline:none;
+  }
+  input:focus { border-color: var(--accent); }
+  .field { margin-bottom: 16px; }
+  .hint { font-size:11.5px; color: var(--muted); margin-top:4px; }
+  .btn {
+    width:100%; padding:13px; background: var(--accent); color: var(--accent2);
+    border:none; border-radius:10px; font-size:15px; font-weight:700; cursor:pointer;
+    letter-spacing:0.03em; font-family:inherit;
+  }
+  .btn:hover { background:#174d22; }
+  .btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .err { font-size:12.5px; color: var(--danger); margin-top:10px; min-height:16px; }
+
+  .result {
+    margin-top:18px; padding:16px; background: var(--surface2); border-radius:12px;
+    display:none; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .result.show { display:flex; }
+  .result .link { flex:1; min-width:180px; font-family:'DM Mono',monospace; font-size:13.5px; color: var(--accent); word-break: break-all; }
+  .copy-btn {
+    padding:8px 14px; background: var(--accent); color: var(--accent2); border:none;
+    border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+
+  .list-title { font-size:13px; font-weight:700; color: var(--muted); margin-bottom:10px; }
+  table { width:100%; border-collapse: collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); }
+  th { color: var(--muted); font-size:11.5px; font-weight:700; }
+  td.url-cell { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  td.code-cell { font-family:'DM Mono',monospace; color: var(--accent); font-weight:700; }
+  .empty { font-size:13px; color: var(--muted); padding:12px 0; }
+  .notice {
+    background:#fff3a8; border:1px solid var(--accent2); border-radius:10px; padding:12px 14px;
+    font-size:12.5px; color:#5a4a00; margin-bottom:20px; line-height:1.6;
+  }
+</style>
+</head>
+<body>
+
+<div id="pwGate" style="position:fixed;inset:0;z-index:99999;background:#e8e8e8;display:flex;align-items:center;justify-content:center;font-family:'Noto Sans TC',sans-serif;">
+  <div style="background:#fff;border-radius:16px;padding:40px 32px 32px;box-shadow:0 4px 32px rgba(0,0,0,0.12);width:90%;max-width:340px;text-align:center;border-top:4px solid #fbcd2c;">
+    <div style="width:44px;height:44px;background:#1e5929;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbcd2c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    </div>
+    <div style="font-size:18px;font-weight:700;color:#1a1a1a;margin-bottom:4px;">泡芙與媽 工具箱</div>
+    <div style="font-size:13px;color:#999;margin-bottom:24px;">請輸入密碼以繼續</div>
+    <div style="position:relative;margin-bottom:8px;">
+      <input id="pwInput" type="password" placeholder="輸入密碼" autocomplete="current-password"
+        style="width:100%;box-sizing:border-box;padding:12px 44px 12px 16px;border:1.5px solid #ddd;border-radius:10px;font-size:15px;outline:none;background:#fafafa;color:#1a1a1a;font-family:'Noto Sans TC',sans-serif;transition:border-color 0.2s;"
+        onkeydown="if(event.key==='Enter')checkPw()"
+        onfocus="this.style.borderColor='#1e5929'" onblur="this.style.borderColor='#ddd'">
+      <button id="pwEyeBtn" onclick="togglePwEye()" type="button"
+        style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;line-height:1;touch-action:manipulation;">
+        <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+    <div id="pwErr" style="font-size:12px;color:#e05555;min-height:18px;margin-bottom:10px;text-align:left;padding-left:2px;"></div>
+    <button onclick="checkPw()"
+      style="width:100%;padding:13px;background:#1e5929;color:#fbcd2c;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.04em;transition:background 0.15s;"
+      onmouseover="this.style.background='#174d22'" onmouseout="this.style.background='#1e5929'">
+      進入
+    </button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const HINT    = document.querySelector('#pwGate [style*="font-size:13px"][style*="color:#999"]');
+  const SUBMIT  = document.querySelector('#pwGate button[onclick="checkPw()"]');
+
+  function unlock(){
+    sessionStorage.setItem('lbs_auth','1');
+    document.getElementById('pwGate').style.display='none';
+  }
+  if(sessionStorage.getItem('lbs_auth')==='1'){ unlock(); return; }
+
+  const savedPw = localStorage.getItem('lbs_pw');
+  if(!savedPw){
+    if(HINT)    HINT.textContent = '第一次使用，請設定你的密碼';
+    if(SUBMIT)  SUBMIT.textContent = '設定密碼';
+    window.checkPw = function(){
+      const v = document.getElementById('pwInput').value.trim();
+      if(v.length < 3){ document.getElementById('pwErr').textContent = '密碼至少 3 個字元'; return; }
+      localStorage.setItem('lbs_pw', v.toLowerCase());
+      unlock();
+    };
+  } else {
+    if(HINT)    HINT.textContent = '請輸入密碼以繼續';
+    if(SUBMIT)  SUBMIT.textContent = '進入';
+    window.checkPw = function(){
+      const v = document.getElementById('pwInput').value.toLowerCase().trim();
+      if(v === savedPw){ unlock(); }
+      else {
+        document.getElementById('pwErr').textContent = '密碼錯誤，請再試一次';
+        document.getElementById('pwInput').value = '';
+        document.getElementById('pwInput').focus();
+      }
+    };
+  }
+  window.togglePwEye = function(){
+    const inp = document.getElementById('pwInput');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    document.getElementById('pwEyeBtn').querySelector('svg').style.stroke = inp.type === 'text' ? '#1e5929' : '#aaa';
+  };
+})();
+</script>
+
+<header>
+  <a href="/" title="回工具首頁">
+    <div class="logo-dot"></div>
+    <h1>縮短網址產生器</h1>
+  </a>
+  <span>v1.0 · 泡芙與媽工具箱</span>
+</header>
+
+<div class="wrap">
+
+  <div id="setupNotice" class="notice" style="display:none;">
+    ⚠️ 這個工具還沒接上資料庫，暫時無法使用。請聯絡開發者（Claude）完成 Supabase 設定。
+  </div>
+
+  <div class="card">
+    <div class="field">
+      <label>要縮短的網址</label>
+      <input type="url" id="longUrl" placeholder="https://example.com/一大串很長的網址...">
+    </div>
+    <div class="field">
+      <label>自訂短碼（不填會自動產生一組）</label>
+      <input type="text" id="customCode" placeholder="例如 sale2026">
+      <div class="hint">只能用英文字母、數字、-、_，3-20 個字</div>
+    </div>
+    <button class="btn" id="genBtn" onclick="generateLink()">產生短網址</button>
+    <div class="err" id="genErr"></div>
+
+    <div class="result" id="result">
+      <div class="link" id="resultLink"></div>
+      <button class="copy-btn" onclick="copyResult()">📋 複製</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="list-title">最近建立的短網址</div>
+    <div id="listWrap"><div class="empty">載入中…</div></div>
+  </div>
+
+</div>
+
+<script>
+  const SUPABASE_URL = 'PLACEHOLDER_SUPABASE_URL';
+  const SUPABASE_ANON_KEY = 'PLACEHOLDER_SUPABASE_ANON_KEY';
+  const configured = !SUPABASE_URL.startsWith('PLACEHOLDER');
+  const sb = configured ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+  if (!configured) {
+    document.getElementById('setupNotice').style.display = 'block';
+    document.getElementById('genBtn').disabled = true;
+    document.getElementById('listWrap').innerHTML = '<div class="empty">尚未設定資料庫</div>';
+  }
+
+  function randomCode(len = 6) {
+    const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉容易看錯的 0/O/1/l/i
+    let out = '';
+    for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  async function generateLink() {
+    if (!configured) return;
+    const errEl = document.getElementById('genErr');
+    errEl.textContent = '';
+    const url = document.getElementById('longUrl').value.trim();
+    let code = document.getElementById('customCode').value.trim();
+
+    if (!url) { errEl.textContent = '請先貼上要縮短的網址'; return; }
+    try { new URL(url); } catch (e) { errEl.textContent = '網址格式不正確，記得要有 https://'; return; }
+
+    if (code) {
+      if (!/^[a-zA-Z0-9_-]{3,20}$/.test(code)) {
+        errEl.textContent = '自訂短碼只能用英文、數字、- 或 _，長度 3-20';
+        return;
+      }
+    } else {
+      code = randomCode();
+    }
+
+    const btn = document.getElementById('genBtn');
+    btn.disabled = true; btn.textContent = '產生中…';
+
+    try {
+      let attempt = 0;
+      while (attempt < 5) {
+        const { error } = await sb.from('short_links').insert({ code, url });
+        if (!error) break;
+        if (error.code === '23505') { // unique violation
+          if (document.getElementById('customCode').value.trim()) {
+            errEl.textContent = '這個短碼已經有人用了，換一個試試';
+            btn.disabled = false; btn.textContent = '產生短網址';
+            return;
+          }
+          code = randomCode(); attempt++;
+          continue;
+        }
+        throw error;
+      }
+      showResult(code);
+      document.getElementById('longUrl').value = '';
+      document.getElementById('customCode').value = '';
+      loadList();
+    } catch (e) {
+      console.error(e);
+      errEl.textContent = '建立失敗，請稍後再試（' + (e.message || '未知錯誤') + '）';
+    } finally {
+      btn.disabled = false; btn.textContent = '產生短網址';
+    }
+  }
+
+  function showResult(code) {
+    const link = location.origin + '/' + code;
+    document.getElementById('resultLink').textContent = link;
+    document.getElementById('result').classList.add('show');
+  }
+
+  function copyResult() {
+    const text = document.getElementById('resultLink').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = event.target;
+      const old = btn.textContent;
+      btn.textContent = '✓ 已複製';
+      setTimeout(() => { btn.textContent = old; }, 1500);
+    });
+  }
+
+  async function loadList() {
+    if (!configured) return;
+    const wrap = document.getElementById('listWrap');
+    const { data, error } = await sb.from('short_links')
+      .select('code, url, clicks, created_at')
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) { wrap.innerHTML = '<div class="empty">讀取失敗</div>'; return; }
+    if (!data || !data.length) { wrap.innerHTML = '<div class="empty">還沒有建立過短網址</div>'; return; }
+
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>短碼</th><th>原始網址</th><th>點擊</th></tr></thead>
+        <tbody>
+          ${data.map(row => `
+            <tr>
+              <td class="code-cell">${row.code}</td>
+              <td class="url-cell" title="${escapeHtml(row.url)}">${escapeHtml(row.url)}</td>
+              <td>${row.clicks || 0}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  loadList();
+</script>
+
+</body>
+</html>
