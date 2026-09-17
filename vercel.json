@@ -1,0 +1,6 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/((?!labor-form|shorturl|favicon.ico|robots.txt|api/).*)", "destination": "/index.html" }
+  ]
+}
