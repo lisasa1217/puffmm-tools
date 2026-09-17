@@ -1,6 +1,7 @@
 {
-  "cleanUrls": true,
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+  "routes": [
+    { "src": "^/labor-form/?$", "dest": "/labor-form.html" },
+    { "src": "^/shorturl/?$", "dest": "/shorturl.html" },
+    { "src": "^/(.*)$", "dest": "/index.html" }
   ]
 }
