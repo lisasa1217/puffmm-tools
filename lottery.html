@@ -10,9 +10,10 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
   - 關鍵字（任一符合）、至少 tag N 位、截止時間、排除名單
   - 「重複 tag 不算」：同一人後面的留言再 tag 已經 tag 過的人，不算新的
   - 每人機會：只算一次 / 每則符合的留言各一次（可設上限）
-  - 可疑抽獎帳：用 history（她最近 40 篇貼文誰留過言）判斷
+  - 疑似抽獎帳：用 history（她最近 40 篇貼文誰留過言）判斷
       只在抽獎文出現 → 疑似抽獎帳；一般貼文也常留言 → 老粉
-    加上帳號名稱規則（lucky/giveaway/一長串數字）
+    加上帳號名稱規則（lucky/giveaway/一長串數字）。只標記不排除（她說客人害羞、第一次留言很正常）
+只抽得獎者、沒有備取；不符合的按「重抽這一位」從沒抽過的人裡補
 追蹤、分享限動 IG API 查不到 → 抽完在得獎卡片上手動勾。
 ==========================================================
 -->
@@ -177,8 +178,7 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
   .win .txt { font-size:12.5px; color:#4a5a30; background: var(--surface2); border-radius:10px; padding:8px 10px; margin-bottom:10px; word-break:break-word; }
   .win .checks { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
   .win .acts { display:flex; gap:8px; flex-wrap:wrap; }
-  .win.backup { border-style: dashed; }
-
+  
   .announce { width:100%; min-height:120px; font-size:14px; line-height:1.6; }
   .row-btns { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
 
@@ -280,11 +280,7 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
           </div>
 
           <div class="field">
-            <label class="l">疑似抽獎帳</label>
-            <div class="seg" id="rSus">
-              <button data-v="mark" class="on">只標記</button>
-              <button data-v="exclude">直接排除</button>
-            </div>
+            <label class="l">疑似抽獎帳（只標記，不會排除）</label>
             <div class="hint" id="susHint">正在查你最近的貼文，看每個人平常有沒有在留言…</div>
           </div>
 
@@ -295,10 +291,7 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
 
           <div class="field">
             <label class="l">抽出人數</label>
-            <div class="inline">
-              <span style="font-size:13px">正取</span><input type="number" id="rWinners" min="1" value="1">
-              <span style="font-size:13px">備取</span><input type="number" id="rBackups" min="0" value="3">
-            </div>
+            <div class="inline"><input type="number" id="rWinners" min="1" value="1"> <span style="font-size:13px">位</span></div>
           </div>
         </div>
 
@@ -337,7 +330,7 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
 
         <div class="card" style="margin-top:16px">
           <h2>得獎公告</h2>
-          <div class="sub">追蹤、分享限動 IG 查不到，請點帳號進去看，確認後在卡片上打勾。不符合就按「換備取」。</div>
+          <div class="sub">追蹤、分享限動 IG 查不到，請點帳號進去看，確認後在卡片上打勾。不符合就按「重抽這一位」。</div>
           <textarea id="announce" class="announce"></textarea>
           <div class="row-btns">
             <button class="btn small" onclick="copyAnnounce()">📋 複製公告</button>
@@ -482,10 +475,9 @@ function hideLoad() { $('loadMsg').classList.add('hidden'); }
 
 /* ---------- ② 規則 ---------- */
 function bindRuleInputs() {
-  ['rKeywords','rTags','rNoRepeatTag','rCap','rDeadline','rExclude','rWinners','rBackups']
+  ['rKeywords','rTags','rNoRepeatTag','rCap','rDeadline','rExclude','rWinners']
     .forEach(id => $(id).addEventListener('input', recompute));
   segBind('rMode', recompute);
-  segBind('rSus', recompute);
 }
 function segBind(id, cb) {
   $(id).querySelectorAll('button').forEach(b => b.onclick = () => {
@@ -504,10 +496,8 @@ function readRules() {
     mode: segVal('rMode'),
     cap: Math.max(0, parseInt($('rCap').value) || 0),
     deadline: $('rDeadline').value,
-    sus: segVal('rSus'),
     exclude: $('rExclude').value.split(/[\n,，\s]+/).map(s => s.replace(/^@/, '').trim().toLowerCase()).filter(Boolean),
     winners: Math.max(1, parseInt($('rWinners').value) || 1),
-    backups: Math.max(0, parseInt($('rBackups').value) || 0),
   };
 }
 function restoreRules() {
@@ -518,10 +508,8 @@ function restoreRules() {
   segSet('rMode', r.mode || 'once');
   $('rCap').value = r.cap ?? 3;
   $('rDeadline').value = r.deadline || '';
-  segSet('rSus', r.sus || 'mark');
   $('rExclude').value = (r.exclude || []).join('\n');
   $('rWinners').value = r.winners ?? 1;
-  $('rBackups').value = r.backups ?? 3;
 }
 
 // 帳號名稱像抽獎帳
@@ -577,10 +565,7 @@ function computeEntries(r) {
     e.profile = profileOf(e.user);
     if (!e.okComments.length) { no.push(e); continue; }
     e.tickets = r.mode === 'once' ? 1 : (r.cap ? Math.min(r.cap, e.okComments.length) : e.okComments.length);
-    if (e.profile.sus.length) {
-      sus.push(e);
-      if (r.sus === 'exclude') continue;
-    }
+    if (e.profile.sus.length) sus.push(e);
     ok.push(e);
   }
   return { ok, sus, no, total: S.comments.length };
@@ -626,7 +611,7 @@ function renderList() {
   $('list').innerHTML = arr.slice(0, 600).map(e => {
     const c = (e.okComments[0] || e.comments[0]);
     const why = S.listTab === 'no' ? `<div class="why">✗ ${[...e.reasons].join('、')}</div>`
-      : S.listTab === 'sus' ? `<div class="why" style="color:var(--warn)">${esc(e.profile.sus.join('；'))}${r.sus === 'exclude' ? '（已排除）' : '（仍可參加）'}</div>` : '';
+      : S.listTab === 'sus' ? `<div class="why" style="color:var(--warn)">${esc(e.profile.sus.join('；'))}（仍可參加）</div>` : '';
     const tix = S.listTab === 'no' ? '' : `<div class="tix">${e.tickets} 次</div>`;
     return `<div class="row"><div class="who">
       <div class="name">${profileLink(e.user)} ${badges(e.profile)}</div>
@@ -640,7 +625,7 @@ function prepareStage() {
   const r = readRules();
   const tickets = S.entries.ok.reduce((a, e) => a + e.tickets, 0);
   $('stageCap').textContent = S.post.caption.split('\n')[0].slice(0, 50);
-  $('stageMeta').innerHTML = `符合資格 ${S.entries.ok.length} 人・共 ${tickets} 次機會<br>正取 ${r.winners} 位・備取 ${r.backups} 位`;
+  $('stageMeta').innerHTML = `符合資格 ${S.entries.ok.length} 人・共 ${tickets} 次機會<br>抽出 ${r.winners} 位`;
   if (!S.draw) {
     $('roller').textContent = '準備好了嗎？';
     $('drawBtn').classList.remove('hidden');
@@ -670,16 +655,16 @@ function drawOrder(entries, count) {
 
 async function startDraw() {
   const r = readRules();
-  const order = drawOrder(S.entries.ok, r.winners + r.backups);
-  S.draw = { at: new Date(), rules: r, order: order.map(e => ({ e, follow: false, story: false, bad: false })), winners: r.winners };
+  const order = drawOrder(S.entries.ok, r.winners);
+  S.draw = { at: new Date(), rules: r, slots: order.map(e => ({ e, follow: false, story: false })), replaced: [] };
   $('drawBtn').classList.add('hidden');
   const names = S.entries.ok.map(e => e.user);
   // 滾動動畫（錄影用）
-  for (let i = 0; i < Math.min(r.winners, order.length); i++) {
-    await roll(names, order[i].user, 2200);
+  for (const e of order) {
+    await roll(names, e.user, 2200);
     await sleep(700);
   }
-  $('roller').textContent = '🎉 恭喜 ' + order.slice(0, r.winners).map(e => '@' + e.user).join('、');
+  showCongrats();
   $('stageMeta').innerHTML += `<br>抽獎時間 ${S.draw.at.toLocaleString('zh-TW')}`;
   renderWinners();
   $('resultWrap').classList.remove('hidden');
@@ -694,43 +679,43 @@ async function roll(names, final, dur) {
   }
   $('roller').textContent = '@' + final;
 }
+function showCongrats() {
+  $('roller').textContent = '🎉 恭喜 ' + S.draw.slots.map(x => '@' + x.e.user).join('、');
+}
 
-function currentWinners() {
-  // 前面有人被標成不符資格時，由備取依序補上
-  const good = S.draw.order.filter(x => !x.bad);
-  return { win: good.slice(0, S.draw.winners), back: good.slice(S.draw.winners) };
+// 某位不符合 → 從還沒抽過的人裡重抽一位替換
+async function redrawOne(i) {
+  const used = new Set([...S.draw.slots.map(x => x.e.user), ...S.draw.replaced.map(x => x.user)]);
+  const pool = S.entries.ok.filter(e => !used.has(e.user));
+  if (!pool.length) { alert('沒有其他符合資格的人可以抽了'); return; }
+  const old = S.draw.slots[i].e;
+  const [e] = drawOrder(pool, 1);
+  S.draw.replaced.push({ user: old.user, at: new Date() });
+  S.draw.slots[i] = { e, follow: false, story: false };
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await roll(pool.map(x => x.user), e.user, 1800);
+  await sleep(600);
+  showCongrats();
+  renderWinners();
 }
 
 function renderWinners() {
-  const { win, back } = currentWinners();
-  const card = (x, label, isBack) => {
-    const idx = S.draw.order.indexOf(x);
-    const c = x.e.okComments[0];
-    return `<div class="win ${isBack ? 'backup' : ''} ${x.bad ? 'bad' : ''}">
-      <div class="rank">${label}</div>
+  $('winners').innerHTML = S.draw.slots.map((x, i) => `<div class="win">
+      <div class="rank">🏆 得獎者 ${i + 1}</div>
       <div class="uname">${profileLink(x.e.user)} ${badges(x.e.profile)}</div>
-      <div class="txt">${esc(c.text)}</div>
-      ${isBack ? '' : `<div class="checks">
-        <label class="check"><input type="checkbox" ${x.follow ? 'checked' : ''} onchange="S.draw.order[${idx}].follow=this.checked"> 有追蹤我</label>
-        <label class="check"><input type="checkbox" ${x.story ? 'checked' : ''} onchange="S.draw.order[${idx}].story=this.checked"> 有分享限動</label>
+      <div class="txt">${esc(x.e.okComments[0].text)}</div>
+      <div class="checks">
+        <label class="check"><input type="checkbox" ${x.follow ? 'checked' : ''} onchange="S.draw.slots[${i}].follow=this.checked"> 有追蹤我</label>
+        <label class="check"><input type="checkbox" ${x.story ? 'checked' : ''} onchange="S.draw.slots[${i}].story=this.checked"> 有分享限動</label>
       </div>
-      <div class="acts"><button class="btn small ghost" onclick="markBad(${idx})">不符合，換備取</button></div>`}
-    </div>`;
-  };
-  const bad = S.draw.order.filter(x => x.bad);
-  $('winners').innerHTML =
-    win.map((x, i) => card(x, `🏆 正取 ${i + 1}`, false)).join('') +
-    back.map((x, i) => card(x, `備取 ${i + 1}`, true)).join('') +
-    bad.map(x => `<div class="win bad"><div class="rank">已取消資格</div><div class="uname">@${esc(x.e.user)}</div>
-      <div class="acts"><button class="btn small ghost" onclick="unmarkBad(${S.draw.order.indexOf(x)})">恢復</button></div></div>`).join('');
-  if (!win.length) $('winners').innerHTML += '<div class="empty">備取用完了，可以按「重新抽一次」</div>';
-  $('announce').value = announceText(win);
+      <div class="acts"><button class="btn small ghost" onclick="redrawOne(${i})">不符合，重抽這一位</button></div>
+    </div>`).join('') +
+    (S.draw.replaced.length ? `<div class="win bad"><div class="rank">重抽換掉的</div><div class="txt" style="background:none;padding:0">${S.draw.replaced.map(x => '@' + esc(x.user)).join('、')}</div></div>` : '');
+  $('announce').value = announceText();
 }
-function markBad(i) { S.draw.order[i].bad = true; renderWinners(); }
-function unmarkBad(i) { S.draw.order[i].bad = false; renderWinners(); }
 
-function announceText(win) {
-  return `🎉 抽獎結果公布 🎉\n\n恭喜 ${win.map(x => '@' + x.e.user).join(' ')}\n\n請在 3 天內私訊我們寄送資料，逾期由備取遞補喔！\n謝謝大家熱情參加 💛\n\n＊本活動與 Instagram 無關`;
+function announceText() {
+  return `🎉 抽獎結果公布 🎉\n\n恭喜 ${S.draw.slots.map(x => '@' + x.e.user).join(' ')}\n\n請在 3 天內私訊我們寄送資料喔！\n謝謝大家熱情參加 💛\n\n＊本活動與 Instagram 無關`;
 }
 function copyAnnounce() {
   navigator.clipboard.writeText($('announce').value).then(() => toastBtn(event.target, '✅ 已複製'));
@@ -738,7 +723,7 @@ function copyAnnounce() {
 function toastBtn(b, t) { const o = b.textContent; b.textContent = t; setTimeout(() => b.textContent = o, 1400); }
 
 function redraw() {
-  if (!confirm('確定要重新抽？剛剛的結果會被取代')) return;
+  if (!confirm('確定要全部重抽？剛剛的結果會被取代')) return;
   S.draw = null;
   prepareStage();
   startDraw();
@@ -746,19 +731,16 @@ function redraw() {
 
 function downloadCsv() {
   const r = S.draw.rules;
-  const { win, back } = currentWinners();
   const status = new Map();
-  win.forEach((x, i) => status.set(x.e.user, '正取' + (i + 1)));
-  back.forEach((x, i) => status.set(x.e.user, '備取' + (i + 1)));
-  S.draw.order.filter(x => x.bad).forEach(x => status.set(x.e.user, '取消資格'));
+  S.draw.slots.forEach((x, i) => status.set(x.e.user, '得獎' + (i + 1)));
+  S.draw.replaced.forEach(x => status.set(x.user, '重抽換掉'));
   const rows = [
     ['貼文', S.post.permalink || ''],
     ['抽獎時間', S.draw.at.toLocaleString('zh-TW')],
-    ['規則', `關鍵字:${r.keywords.join('/') || '不限'}; tag:${r.tags}位; 重複tag不算:${r.noRepeatTag ? '是' : '否'}; 每人:${r.mode === 'once' ? '一次' : '每則都算(上限' + (r.cap || '不限') + ')'}; 截止:${r.deadline || '無'}; 疑似抽獎帳:${r.sus === 'exclude' ? '排除' : '只標記'}`],
+    ['規則', `關鍵字:${r.keywords.join('/') || '不限'}; tag:${r.tags}位; 重複tag不算:${r.noRepeatTag ? '是' : '否'}; 每人:${r.mode === 'once' ? '一次' : '每則都算(上限' + (r.cap || '不限') + ')'}; 截止:${r.deadline || '無'}`],
     [],
     ['帳號', '結果', '抽獎機會', '符合的留言數', '疑似抽獎帳', '老粉', '第一則符合的留言'],
     ...S.entries.ok.map(e => [e.user, status.get(e.user) || '', e.tickets, e.okComments.length, e.profile.sus.join('；'), e.profile.fan || '', e.okComments[0].text]),
-    ...(r.sus === 'exclude' ? S.entries.sus.map(e => [e.user, '排除(疑似抽獎帳)', 0, e.okComments.length, e.profile.sus.join('；'), '', e.okComments[0].text]) : []),
   ];
   const csv = '﻿' + rows.map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
