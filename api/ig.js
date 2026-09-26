@@ -55,12 +55,16 @@ async function ig(path, token) {
 }
 
 // 跟著 paging.next 一直抓到底
+async function igRetry(path, token) {
+  try { return await ig(path, token); }
+  catch (e) { await new Promise(r => setTimeout(r, 800)); return ig(path, token); }
+}
 async function igAll(path, token, max = 20000) {
   let out = [];
-  let j = await ig(path, token);
+  let j = await igRetry(path, token);
   out = out.concat(j.data || []);
   while (j.paging?.next && out.length < max) {
-    j = await ig(j.paging.next, token);
+    j = await igRetry(j.paging.next, token);
     out = out.concat(j.data || []);
   }
   return out;
@@ -114,10 +118,17 @@ module.exports = async (req, res) => {
     if (action === 'comments') {
       const media = req.query.media;
       if (!/^\d+$/.test(media || '')) return res.status(400).json({ error: '缺少貼文 ID' });
-      const list = await igAll(`/${media}/comments?fields=id,text,timestamp,username,from&limit=50`, token);
+      // IG 分頁偶爾會提早結束 → 跟貼文留言數比，少太多就重抓（最多 3 次，取最多的那次）
+      const { comments_count: total = 0 } = await ig(`/${media}?fields=comments_count`, token);
+      let list = [];
+      for (let t = 0; t < 3; t++) {
+        const got = await igAll(`/${media}/comments?fields=id,text,timestamp,username,from&limit=50`, token);
+        if (got.length > list.length) list = got;
+        if (list.length >= total * 0.9) break;
+      }
       return res.json({
         comments: list.map(c => ({ id: c.id, username: c.username || c.from?.username, text: c.text || '', timestamp: c.timestamp })),
-        missing: list.filter(c => !(c.username || c.from?.username)).length,
+        total,
       });
     }
 

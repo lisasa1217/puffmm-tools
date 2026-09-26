@@ -457,8 +457,11 @@ async function pickPost(id) {
   const historyP = api('history', { exclude: id }).then(h => { S.history = h; susHintText(); recompute(); })
     .catch(e => { $('susHint').textContent = '查不到留言紀錄（' + e.message + '），只用帳號名稱判斷'; });
   try {
-    S.comments = (await api('comments', { media: id })).comments;
+    const cj = await api('comments', { media: id });
+    S.comments = cj.comments;
     hideLoad();
+    if (cj.total && S.comments.length < cj.total * 0.9)
+      showLoad(`⚠️ 只讀到 ${S.comments.length} / ${cj.total} 則留言，建議重新整理頁面再選一次這篇`, true);
     recompute();
   } catch (e) {
     showLoad('讀不到留言：' + e.message, true);
