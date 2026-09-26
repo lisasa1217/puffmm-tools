@@ -22,7 +22,7 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>泡芙與媽 工具箱</title>
+<title>puffmom tools</title>
 <script>
   // 短碼網址（不是首頁/已知頁面）先把首頁藏起來，避免跳轉前閃一下
   (function(){
@@ -49,6 +49,7 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
   .taskbar { background: var(--teal); border-bottom: 2px solid var(--o); position: relative; z-index: 2; }
   .taskbar .wrap { display: flex; align-items: center; gap: 10px; height: 46px; }
   .taskbar [data-px] { width: 26px; height: 26px; }
+  .brand-logo { width: 32px; height: 32px; display: block; }
   .taskbar .name { font-size: 15px; letter-spacing: .08em; color: var(--o); }
   .taskbar .hi { margin-left: 8px; font-size: 12px; color: var(--o); opacity: .8; }
   .wbtns { margin-left: auto; display: flex; gap: 6px; }
@@ -135,6 +136,19 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
 <link rel="stylesheet" href="/pixel.css">
 <script src="/pixel.js"></script>
 <script src="/fish.js" defer></script>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#a6dccd">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="puffmom tools">
+<meta property="og:title" content="puffmom tools">
+<meta property="og:description" content="泡芙與媽的工作小工具箱">
+<meta property="og:image" content="https://pufftool.vercel.app/icon-512.png">
+<meta property="og:type" content="website">
 </head>
 <body>
 
@@ -145,8 +159,8 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
 
   <div class="taskbar">
     <div class="wrap">
-      <i data-px="toolbox"></i>
-      <span class="name">PUFF &amp; MOM 工具箱</span>
+      <img class="brand-logo" src="/logo.png" alt="puffmom tools">
+      <span class="name">puffmom tools</span>
       <span class="hi">嗨！今天要用哪個？</span>
       <div class="wbtns"><b>_</b><b>□</b><b>×</b></div>
     </div>
@@ -212,7 +226,7 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
   </div>
 </div>
 
-<div class="status"><div class="wrap"><i data-px="heart"></i><span>READY</span><span>v2.3 · puff&amp;mom toolbox</span></div></div>
+<div class="status"><div class="wrap"><i data-px="heart"></i><span>READY</span><span>v2.4 · puffmom tools</span></div></div>
 </div>
 
 <!--

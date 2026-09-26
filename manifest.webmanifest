@@ -1,0 +1,14 @@
+{
+  "name": "puffmom tools",
+  "short_name": "puffmom tools",
+  "description": "泡芙與媽的工作小工具箱",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fefaed",
+  "theme_color": "#a6dccd",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
