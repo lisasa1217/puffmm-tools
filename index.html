@@ -104,6 +104,28 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
   .status [data-px] { width: 16px; height: 16px; }
   .status .wrap span:last-child { margin-left: auto; }
 
+
+  /* 小金魚缸（養成小遊戲）：跟工具視窗等寬 */
+  .tank { margin: 16px 2px 0; }
+  .app-win[data-c=blue] .tb { background: var(--blue); }
+  .tank .tb .msg { font-size: 11px; opacity: .85; }
+  .tank-view { position: relative; line-height: 0; border-bottom: 2px solid var(--o); background: #d4f0f4; }
+  #fishCanvas { display: block; width: 100%; image-rendering: pixelated; cursor: pointer; }
+  .tank-ui { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: var(--panel); flex-wrap: wrap; }
+  .tank-ui .fname { font: inherit; font-size: 13px; color: var(--o); background: none; border: 0; cursor: pointer; padding: 0; border-bottom: 1px dashed var(--o); }
+  .tank-ui .lv { font-size: 11px; background: var(--yellow); color: var(--o); padding: 0 6px; margin: 2px;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); }
+  .tank-ui .lbl { font-size: 11px; color: var(--muted); }
+  .meter { display: flex; gap: 2px; flex: 1; min-width: 90px; max-width: 200px; padding: 2px; background: #fffdf4; margin: 2px;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); }
+  .meter i { flex: 1; height: 8px; background: #f1e8dc; display: block; }
+  .meter i.on { background: var(--pink); }
+  .meter i.on.low { background: #ee8f92; }
+  .fbtn { margin-left: auto; font: inherit; font-size: 12px; padding: 3px 12px; color: var(--o); background: var(--yellow); border: 0; cursor: pointer; margin: 2px 2px 2px auto;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o), inset 0 -3px 0 rgba(106,81,83,.12), inset 0 2px 0 rgba(255,255,255,.6); }
+  .fbtn:hover { background: #ffe9a8; }
+  .fbtn:active { transform: translateY(2px); }
+
   @media (max-width: 640px) {
     .taskbar .hi { display: none; }
     .wrap { padding: 0 14px; }
@@ -112,6 +134,7 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
 </style>
 <link rel="stylesheet" href="/pixel.css">
 <script src="/pixel.js"></script>
+<script src="/fish.js" defer></script>
 </head>
 <body>
 
@@ -130,6 +153,16 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
   </div>
 
   <div class="wrap">
+    <section class="app-win tank" data-c="blue">
+      <div class="tb"><span>fish_tank.exe</span><span class="msg" id="fishMsg">游來游去～</span></div>
+      <div class="tank-view"><canvas id="fishCanvas" aria-label="小金魚缸"></canvas></div>
+      <div class="tank-ui">
+        <button class="fname" id="fishName" title="點一下改名">小金</button><span class="lv" id="fishLv">Lv.1</span>
+        <span class="lbl">飽足</span><div class="meter" id="fishMeter"></div>
+        <button class="fbtn" id="fishFeed">餵食 ●</button>
+      </div>
+    </section>
+
     <div class="tabs-row">
       <button class="tab"><i data-px="star"></i>工具 <em>3</em></button>
       <span class="hint">點視窗開始 ♥</span>
@@ -179,7 +212,7 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
   </div>
 </div>
 
-<div class="status"><div class="wrap"><i data-px="heart"></i><span>READY</span><span>v2.1 · puff&amp;mom toolbox</span></div></div>
+<div class="status"><div class="wrap"><i data-px="heart"></i><span>READY</span><span>v2.2 · puff&amp;mom toolbox</span></div></div>
 </div>
 
 <!--
