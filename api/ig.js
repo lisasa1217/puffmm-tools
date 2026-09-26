@@ -134,7 +134,7 @@ module.exports = async (req, res) => {
           const giveaway = GIVEAWAY_RE.test(p.caption || '');
           let names;
           try {
-            names = new Set((await igAll(`/${p.id}/comments?fields=username&limit=50`, token, 5000)).map(c => c.username));
+            names = new Set((await igAll(`/${p.id}/comments?fields=id,username&limit=50`, token, 5000)).map(c => c.username).filter(Boolean));
           } catch (e) { continue; }
           for (const u of names) {
             users[u] = users[u] || { normal: 0, giveaway: 0 };
