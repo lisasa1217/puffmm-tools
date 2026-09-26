@@ -404,8 +404,11 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
             </div>
           </div>
         </div>
-        <button class="btn" onclick="enterRec()">🎬 進入錄影模式</button>
-        <div class="rec-tip">錄影模式只會留下拉霸機，方便錄成限動或 Reels。先開始螢幕錄影（Mac 按 ⌘⇧5、手機用控制中心），再按「拉！」。</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" style="flex:1" onclick="enterRec()">🎬 進入錄影模式</button>
+          <button class="btn ghost" style="width:auto" id="sndBtn" onclick="toggleSound()">🔊 音效開</button>
+        </div>
+        <div class="rec-tip">錄影模式只會留下拉霸機，方便錄成限動或 Reels。先開始螢幕錄影，再按「拉！」。<br>要錄到音效：手機用控制中心的螢幕錄影就會錄進去；Mac 內建的 ⌘⇧5 錄不到電腦的聲音，建議用手機直接錄這個網頁。</div>
       </div>
 
       <div class="slot-wrap">
@@ -804,6 +807,60 @@ function enterRec() { document.body.classList.add('rec'); window.scrollTo(0, 0);
 function exitRec() { document.body.classList.remove('rec'); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') exitRec(); });
 
+// ---- 音效（Web Audio 即時合成，不用音檔） ----
+const SND = {
+  on: load('lottery_sound') !== false,
+  ctx: null,
+  lastTick: 0,
+  ac() {
+    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    return this.ctx;
+  },
+  tone(freq, dur, { type = 'square', vol = 0.08, at = 0, slide = 0 } = {}) {
+    if (!this.on) return;
+    const c = this.ac(), t = c.currentTime + at;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(c.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  noise(dur, vol = 0.15, at = 0) {
+    if (!this.on) return;
+    const c = this.ac(), t = c.currentTime + at;
+    const buf = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    const src = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 900;
+    src.buffer = buf; g.gain.value = vol;
+    src.connect(f).connect(g).connect(c.destination);
+    src.start(t);
+  },
+  lever() { this.noise(0.12, 0.25); this.tone(140, 0.18, { type: 'triangle', vol: 0.25, slide: 70 }); this.tone(90, 0.12, { type: 'square', vol: 0.06, at: 0.2 }); },
+  tick() {
+    const now = performance.now();
+    if (now - this.lastTick < 28) return;   // 太密會糊成一團
+    this.lastTick = now;
+    this.tone(1400, 0.03, { vol: 0.035 });
+  },
+  stop() { this.tone(988, 0.12, { vol: 0.07 }); this.tone(1319, 0.3, { vol: 0.07, at: 0.08 }); },
+  fanfare() {
+    [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.14, { vol: 0.07, at: 0.1 + i * 0.1 }));
+    [[1047, 1319, 1568]].forEach(ch => ch.forEach(f => this.tone(f, 0.6, { vol: 0.045, at: 0.55 })));
+    this.tone(784, 0.1, { vol: 0.05, at: 0.5 });
+  },
+};
+function toggleSound() {
+  SND.on = !SND.on; store('lottery_sound', SND.on); syncSoundBtn();
+  if (SND.on) SND.stop();
+}
+function syncSoundBtn() { $('sndBtn').textContent = SND.on ? '🔊 音效開' : '🔇 音效關'; }
+syncSoundBtn();
+
 // 經典拉霸圖示（像素）
 const IC_PAL = { o:'#6a5153', r:'#ec7f84', R:'#d9545b', W:'#ffffff', g:'#6fae55', y:'#ffd96b', Y:'#fff3c4' };
 const ICONS = {
@@ -925,6 +982,7 @@ async function spin(win, names, final, dur) {
   const lever = $('lever'), m = $('machine'), reel = win.querySelector('.reel');
   const single = win.classList.contains('one');
   lever.classList.add('pulled'); setTimeout(() => lever.classList.remove('pulled'), 450);
+  if (!m.classList.contains('spinning')) SND.lever();
   m.classList.add('spinning'); win.classList.remove('win-flash');
   const N = 46;
   const list = Array.from({ length: N }, () => names[rand(names.length)]);
@@ -937,9 +995,20 @@ async function spin(win, names, final, dur) {
   await sleep(250);
   reel.style.transition = `transform ${dur}ms cubic-bezier(.12,.72,.18,1.02)`;
   reel.style.transform = `translateY(${-(single ? N - 1 : N - 3) * ITEM_H}px)`;
+  // 每經過一格就「噠」一聲，轉速變慢聲音也跟著變慢
+  let lastIdx = 0, ticking = true;
+  (function watch() {
+    if (!ticking) return;
+    const y = new DOMMatrix(getComputedStyle(reel).transform).m42;
+    const idx = Math.floor(-y / ITEM_H);
+    if (idx !== lastIdx) { lastIdx = idx; SND.tick(); }
+    requestAnimationFrame(watch);
+  })();
   await sleep(dur + 80);
+  ticking = false;
+  SND.stop();
   win.classList.add('win-flash');
-  if (!m.querySelector('.reel-win:not(.win-flash)')) m.classList.remove('spinning');
+  if (!m.querySelector('.reel-win:not(.win-flash)')) { m.classList.remove('spinning'); SND.fanfare(); }
   confetti();
 }
 function buildReelsForRedraw() {
