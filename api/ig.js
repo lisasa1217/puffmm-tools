@@ -114,9 +114,10 @@ module.exports = async (req, res) => {
     if (action === 'comments') {
       const media = req.query.media;
       if (!/^\d+$/.test(media || '')) return res.status(400).json({ error: '缺少貼文 ID' });
-      const list = await igAll(`/${media}/comments?fields=id,text,timestamp,username,like_count&limit=50`, token);
+      const list = await igAll(`/${media}/comments?fields=id,text,timestamp,username,from&limit=50`, token);
       return res.json({
-        comments: list.map(c => ({ id: c.id, username: c.username, text: c.text || '', timestamp: c.timestamp })),
+        comments: list.map(c => ({ id: c.id, username: c.username || c.from?.username, text: c.text || '', timestamp: c.timestamp })),
+        missing: list.filter(c => !(c.username || c.from?.username)).length,
       });
     }
 
@@ -135,7 +136,7 @@ module.exports = async (req, res) => {
           const giveaway = GIVEAWAY_RE.test(p.caption || '');
           let names;
           try {
-            names = new Set((await igAll(`/${p.id}/comments?fields=id,text,timestamp,username&limit=50`, token, 6000)).map(c => c.username).filter(Boolean));
+            names = new Set((await igAll(`/${p.id}/comments?fields=id,username,from&limit=50`, token, 6000)).map(c => c.username || c.from?.username).filter(Boolean));
           } catch (e) { errors.push(e.message); continue; }
           for (const u of names) {
             users[u] = users[u] || { normal: 0, giveaway: 0 };
