@@ -152,21 +152,71 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
   .spin { width:14px; height:14px; border:2px solid var(--border); border-top-color: var(--accent); border-radius:50%; animation: sp 0.8s linear infinite; }
   @keyframes sp { to { transform: rotate(360deg); } }
 
-  /* 抽獎舞台 */
-  .stage {
-    background: linear-gradient(160deg, var(--accent) 0%, #14401d 100%);
-    border-radius:20px; color:#fff; padding:34px 24px; text-align:center; position:relative; overflow:hidden;
+  /* 拉霸機 */
+  .prize-setup { display:grid; grid-template-columns: 1fr auto; gap:12px; align-items:end; margin-bottom:18px; }
+  .prize-setup .photo-btn { display:flex; gap:8px; align-items:center; }
+  .rec-tip { font-size:12px; color: var(--muted); margin-top:8px; line-height:1.5; }
+
+  .slot-wrap { display:flex; justify-content:center; align-items:center; gap:0; }
+  .machine {
+    width: min(440px, 100%); background: #f6b3c8; padding: 16px 16px 20px; position:relative; text-align:center;
+    box-shadow: 0 -4px 0 0 #6a5153, 0 4px 0 0 #6a5153, -4px 0 0 0 #6a5153, 4px 0 0 0 #6a5153, 8px 10px 0 0 rgba(106,81,83,.18);
   }
-  .stage::before { content:''; position:absolute; width:240px; height:240px; border-radius:50%; background: var(--accent2); opacity:.13; top:-110px; right:-50px; }
-  .stage .title { font-size:13px; letter-spacing:.12em; color: rgba(255,255,255,.75); font-weight:700; }
-  .stage .post-cap { font-size:14px; margin-top:6px; color: rgba(255,255,255,.9); }
-  .roller {
-    font-family:'DM Mono', monospace; font-size: clamp(24px, 6vw, 40px); font-weight:500;
-    margin: 26px 0 18px; min-height: 56px; color: var(--accent2); word-break: break-all;
-  }
-  .stage .meta { font-size:12px; color: rgba(255,255,255,.65); font-family:'DM Mono',monospace; line-height:1.7; }
-  .stage .btn { background: var(--accent2); color: var(--text); max-width: 320px; margin: 18px auto 0; display:block; }
-  .stage .btn:hover { background:#ffd84d; }
+  .m-lights { display:flex; justify-content:space-between; padding: 0 4px 10px; }
+  .m-lights i { width:10px; height:10px; background:#fff3c4; box-shadow: 0 0 0 2px #6a5153; animation: blink 0.9s steps(1) infinite; }
+  .m-lights i:nth-child(odd) { animation-delay: .45s; }
+  .machine.spinning .m-lights i { animation-duration: .25s; }
+  @keyframes blink { 50% { background:#ffd96b; } }
+  .m-title { background:#6a5153; color:#fff3c4; font-size:18px; letter-spacing:.12em; padding:8px 6px; }
+  .m-prize { background:#fffdf4; margin:12px 0; padding:12px; display:flex; gap:12px; align-items:center; text-align:left;
+    box-shadow: 0 -3px 0 0 #6a5153, 0 3px 0 0 #6a5153, -3px 0 0 0 #6a5153, 3px 0 0 0 #6a5153; }
+  .m-prize img { width:72px; height:72px; object-fit:cover; flex-shrink:0; box-shadow: 0 0 0 2px #6a5153; }
+  .m-prize .lab { font-size:11px; color:#9b8080; letter-spacing:.1em; }
+  .m-prize .name { font-size:20px; line-height:1.3; color:#5f4649; word-break:break-word; }
+  .m-prize .cnt { font-size:12px; color:#9b8080; margin-top:2px; }
+
+  .reel-win { position:relative; height: 216px; overflow:hidden; background:#fffdf4;
+    box-shadow: inset 0 0 0 3px #6a5153, inset 0 18px 18px -12px rgba(106,81,83,.35), inset 0 -18px 18px -12px rgba(106,81,83,.35); }
+  .reel { position:absolute; left:0; right:0; top:0; will-change: transform; }
+  .reel .it { height:72px; display:flex; align-items:center; gap:12px; padding: 0 18px; font-size:18px; color:#5f4649; white-space:nowrap; overflow:hidden; }
+  .reel .it canvas, .m-chip canvas { width:48px; height:48px; image-rendering: pixelated; flex-shrink:0; box-shadow: 0 0 0 2px #6a5153; background:#fff; }
+  .reel .it span { overflow:hidden; text-overflow:ellipsis; }
+  .payline { position:absolute; left:0; right:0; top:72px; height:72px; pointer-events:none;
+    box-shadow: inset 0 3px 0 0 #ec7f84, inset 0 -3px 0 0 #ec7f84; background: rgba(255,217,107,.18); }
+  .payline::before, .payline::after { content:''; position:absolute; top:26px; border:10px solid transparent; }
+  .payline::before { left:0; border-left-color:#ec7f84; }
+  .payline::after { right:0; border-right-color:#ec7f84; }
+  .reel-win.win-flash .payline { animation: flash .35s steps(1) 6; }
+  @keyframes flash { 50% { background: rgba(255,217,107,.75); } }
+
+  .m-meta { font-size:12px; color:#6a5153; margin-top:10px; line-height:1.6; min-height: 19px; }
+  .m-btn { margin-top:12px; width:100%; padding:14px; font-size:20px; letter-spacing:.2em; background:#ffd96b !important; color:#6a5153 !important; }
+  .m-chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:12px; }
+  .m-chips:empty { display:none; }
+  .m-chip { display:flex; align-items:center; gap:8px; background:#fffdf4; padding:6px 10px 6px 6px; font-size:14px; color:#5f4649;
+    box-shadow: 0 0 0 2px #6a5153; animation: pop .35s ease-out; }
+  .m-chip canvas { width:32px; height:32px; }
+  @keyframes pop { from { transform: scale(.4); opacity:0; } }
+  .m-foot { font-size:11px; color:#6a5153; opacity:.7; margin-top:12px; }
+
+  /* 拉桿 */
+  .lever { width:44px; height:260px; position:relative; align-self:center; margin-left:4px; cursor:pointer; }
+  .lever .rod { position:absolute; left:17px; bottom:40px; width:10px; height:180px; background:#c9b8b0; box-shadow: 0 0 0 2px #6a5153; transform-origin: bottom center; transition: transform .25s ease-in; }
+  .lever .ball { position:absolute; left:6px; top:-24px; width:32px; height:32px; background:#ec7f84; box-shadow: 0 0 0 2px #6a5153, inset -6px -6px 0 0 rgba(0,0,0,.12); }
+  .lever .base { position:absolute; left:0; bottom:0; width:44px; height:48px; background:#6a5153; }
+  .lever.pulled .rod { transform: scaleY(-.55); }
+
+  .confetti { position:fixed; inset:0; pointer-events:none; overflow:hidden; z-index:60; }
+  .confetti i { position:absolute; top:-20px; width:10px; height:10px; animation: fall linear forwards; }
+  @keyframes fall { to { transform: translateY(110vh) rotate(540deg); } }
+
+  /* 錄影模式：只留拉霸機，置中放大 */
+  body.rec header, body.rec .steps, body.rec #demoNotice, body.rec .prize-card, body.rec #resultWrap { display:none !important; }
+  body.rec .wrap { max-width:none; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  body.rec #view3 { width:100%; }
+  body.rec .machine { width: min(520px, 92vw); }
+  .rec-exit { position:fixed; top:12px; right:12px; z-index:70; display:none; }
+  body.rec .rec-exit { display:block; }
 
   .winners { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:14px; margin-top:16px; }
   .win { background: var(--surface); border:1.5px solid var(--border); border-radius:16px; padding:16px; }
@@ -319,13 +369,42 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
 
     <!-- ③ 抽獎 -->
     <section id="view3" class="hidden">
-      <div class="stage">
-        <div class="title">🎁 PUFF &amp; MOM 抽獎</div>
-        <div class="post-cap" id="stageCap"></div>
-        <div class="roller" id="roller">準備好了嗎？</div>
-        <div class="meta" id="stageMeta"></div>
-        <button class="btn" id="drawBtn" onclick="startDraw()">開始抽獎</button>
+      <div class="card prize-card" style="margin-bottom:18px">
+        <div class="prize-setup">
+          <div>
+            <label class="l">這次要抽的獎項</label>
+            <input type="text" id="prizeName" placeholder="例如：幼兒園睡墊組合">
+          </div>
+          <div class="photo-btn">
+            <label class="btn small ghost" style="cursor:pointer">📷 獎品照片<input type="file" id="prizePhoto" accept="image/*" hidden></label>
+            <button class="btn small ghost hidden" id="prizePhotoDel" onclick="setPrizeImg('')">移除</button>
+          </div>
+        </div>
+        <button class="btn" onclick="enterRec()">🎬 進入錄影模式</button>
+        <div class="rec-tip">錄影模式只會留下拉霸機，方便錄成限動或 Reels。先開始螢幕錄影（Mac 按 ⌘⇧5、手機用控制中心），再按「拉！」。</div>
       </div>
+
+      <div class="slot-wrap">
+        <div class="machine" id="machine">
+          <div class="m-lights"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="m-title">PUFF &amp; MOM 抽獎機</div>
+          <div class="m-prize">
+            <img id="mPrizeImg" class="hidden" alt="">
+            <div>
+              <div class="lab">本次獎項</div>
+              <div class="name" id="mPrizeName">神秘好禮</div>
+              <div class="cnt" id="mPrizeCnt"></div>
+            </div>
+          </div>
+          <div class="reel-win" id="reelWin"><div class="reel" id="reel"></div><div class="payline"></div></div>
+          <div class="m-meta" id="stageMeta"></div>
+          <div class="m-chips" id="mChips"></div>
+          <button class="btn m-btn" id="drawBtn" onclick="startDraw()">拉！</button>
+          <div class="m-foot">＊本活動與 Instagram 無關</div>
+        </div>
+        <div class="lever" id="lever" onclick="if(!$('drawBtn').classList.contains('hidden')) startDraw()"><div class="rod"><div class="ball"></div></div><div class="base"></div></div>
+      </div>
+      <button class="btn small rec-exit" onclick="exitRec()">✕ 離開錄影模式</button>
 
       <div id="resultWrap" class="hidden">
         <div class="winners" id="winners"></div>
@@ -578,6 +657,7 @@ function computeEntries(r) {
 
 function recompute() {
   if (!S.post) return;
+  if ($('mPrizeCnt')) $('mPrizeCnt').textContent = `抽出 ${Math.max(1, parseInt($('rWinners').value) || 1)} 位幸運兒`;
   const r = readRules();
   $('rCapWrap').classList.toggle('hidden', r.mode === 'once');
   store('lottery_rules_' + S.post.id, r);
@@ -625,16 +705,98 @@ function renderList() {
   }).join('') + (arr.length > 600 ? `<div class="empty">…還有 ${arr.length - 600} 人，抽獎時都會算進去</div>` : '');
 }
 
-/* ---------- ③ 抽獎 ---------- */
-function prepareStage() {
+/* ---------- ③ 抽獎（拉霸機） ---------- */
+const ITEM_H = 72;
+
+// 每個帳號一個固定的像素頭像（IG API 拿不到別人的大頭貼）
+const AV_PAL = [['#f6b3c8','#ec7f84'],['#a6dccd','#5fae98'],['#aec3f3','#6f8fd8'],['#f9cd9b','#e39a54'],['#ffe08a','#d9a91f'],['#cdb4ee','#9270c9'],['#b8e1a0','#6fae55']];
+const avCache = new Map();
+function hashStr(t) { let h = 2166136261; for (const ch of t) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function avatar(u) {
+  if (avCache.has(u)) return avCache.get(u);
+  let h = hashStr(u);
+  const [bg, fg] = AV_PAL[h % AV_PAL.length];
+  const c = document.createElement('canvas'); c.width = c.height = 8;
+  const g = c.getContext('2d');
+  g.fillStyle = bg; g.fillRect(0, 0, 8, 8);
+  g.fillStyle = fg;
+  h = hashStr(u + '#');
+  for (let y = 1; y < 7; y++) for (let x = 1; x < 4; x++) {
+    if ((h >>> ((y * 3 + x) % 31)) & 1) { g.fillRect(x, y, 1, 1); g.fillRect(7 - x, y, 1, 1); }
+  }
+  g.fillStyle = '#6a5153'; g.fillRect(2, 3, 1, 1); g.fillRect(5, 3, 1, 1); // 眼睛
+  const url = c.toDataURL();
+  avCache.set(u, url);
+  return url;
+}
+function avEl(u) {
+  // 用 canvas 畫：錄影時不會有圖片載入延遲
+  const c = document.createElement('canvas'); c.width = c.height = 8;
+  const img = new Image(); img.src = avatar(u);
+  const g = c.getContext('2d'); img.onload = () => g.drawImage(img, 0, 0); if (img.complete) g.drawImage(img, 0, 0);
+  return c;
+}
+function reelItem(u) {
+  const d = document.createElement('div'); d.className = 'it';
+  const sp = document.createElement('span'); sp.textContent = '@' + u;
+  d.append(avEl(u), sp);
+  return d;
+}
+
+function prizeKey() { return 'lottery_prize_' + (S.post ? S.post.id : ''); }
+function loadPrize() {
+  const p = load(prizeKey()) || {};
+  $('prizeName').value = p.name || '';
+  S.prizeImg = p.img || '';
+  syncPrize();
+}
+function savePrize() { store(prizeKey(), { name: $('prizeName').value, img: S.prizeImg || '' }); }
+function syncPrize() {
   const r = readRules();
+  $('mPrizeName').textContent = $('prizeName').value.trim() || '神秘好禮';
+  $('mPrizeCnt').textContent = `抽出 ${r.winners} 位幸運兒`;
+  $('mPrizeImg').classList.toggle('hidden', !S.prizeImg);
+  if (S.prizeImg) $('mPrizeImg').src = S.prizeImg;
+  $('prizePhotoDel').classList.toggle('hidden', !S.prizeImg);
+}
+function setPrizeImg(url) { S.prizeImg = url; syncPrize(); savePrize(); }
+$('prizeName').addEventListener('input', () => { syncPrize(); savePrize(); });
+$('prizePhoto').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image();
+  img.onload = () => { // 縮成 360px 方形，存得進瀏覽器
+    const c = document.createElement('canvas'); c.width = c.height = 360;
+    const s = Math.min(img.width, img.height);
+    c.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 360, 360);
+    setPrizeImg(c.toDataURL('image/jpeg', 0.82));
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(f);
+  e.target.value = '';
+});
+
+function enterRec() { document.body.classList.add('rec'); window.scrollTo(0, 0); }
+function exitRec() { document.body.classList.remove('rec'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') exitRec(); });
+
+function idleReel() {
+  const reel = $('reel');
+  reel.style.transition = 'none'; reel.style.transform = 'translateY(0)';
+  reel.innerHTML = '';
+  const names = S.entries.ok.map(e => e.user);
+  const pick = names.length > 3 ? [0, 1, 2].map(() => names[rand(names.length)]) : names;
+  pick.forEach(u => reel.append(reelItem(u)));
+}
+
+function prepareStage() {
   const tickets = S.entries.ok.reduce((a, e) => a + e.tickets, 0);
-  $('stageCap').textContent = S.post.caption.split('\n')[0].slice(0, 50);
-  $('stageMeta').innerHTML = `符合資格 ${S.entries.ok.length} 人・共 ${tickets} 次機會<br>抽出 ${r.winners} 位`;
+  loadPrize();
+  $('stageMeta').textContent = `符合資格 ${S.entries.ok.length} 人・共 ${tickets} 次機會`;
   if (!S.draw) {
-    $('roller').textContent = '準備好了嗎？';
+    $('mChips').innerHTML = '';
     $('drawBtn').classList.remove('hidden');
     $('resultWrap').classList.add('hidden');
+    idleReel();
   }
 }
 
@@ -663,29 +825,58 @@ async function startDraw() {
   const order = drawOrder(S.entries.ok, r.winners);
   S.draw = { at: new Date(), rules: r, slots: order.map(e => ({ e, follow: false, story: false })), replaced: [] };
   $('drawBtn').classList.add('hidden');
+  $('mChips').innerHTML = '';
   const names = S.entries.ok.map(e => e.user);
-  // 滾動動畫（錄影用）
   for (const e of order) {
-    await roll(names, e.user, 2200);
-    await sleep(700);
+    await spin(names, e.user);
+    addChip(e.user);
+    await sleep(900);
   }
-  showCongrats();
-  $('stageMeta').innerHTML += `<br>抽獎時間 ${S.draw.at.toLocaleString('zh-TW')}`;
+  $('stageMeta').textContent = `🎉 恭喜！抽獎時間 ${S.draw.at.toLocaleString('zh-TW')}`;
   renderWinners();
   $('resultWrap').classList.remove('hidden');
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function roll(names, final, dur) {
-  const t0 = performance.now();
-  while (performance.now() - t0 < dur) {
-    const p = (performance.now() - t0) / dur;
-    $('roller').textContent = '@' + names[rand(names.length)];
-    await sleep(40 + p * p * 220);
-  }
-  $('roller').textContent = '@' + final;
+
+// 拉霸：排一長串隨機帳號，最後停在得獎者（在中間那格）
+async function spin(names, final) {
+  const lever = $('lever'), m = $('machine'), win = $('reelWin'), reel = $('reel');
+  lever.classList.add('pulled'); setTimeout(() => lever.classList.remove('pulled'), 450);
+  m.classList.add('spinning'); win.classList.remove('win-flash');
+  const N = 46;
+  const list = Array.from({ length: N }, () => names[rand(names.length)]);
+  list[N - 2] = final;
+  reel.style.transition = 'none'; reel.style.transform = 'translateY(0)';
+  reel.innerHTML = '';
+  list.forEach(u => reel.append(reelItem(u)));
+  reel.offsetHeight; // 讓瀏覽器先排版
+  await sleep(250);
+  const dur = 4200;
+  reel.style.transition = `transform ${dur}ms cubic-bezier(.12,.72,.18,1.02)`;
+  reel.style.transform = `translateY(${-(N - 3) * ITEM_H}px)`;
+  await sleep(dur + 80);
+  m.classList.remove('spinning'); win.classList.add('win-flash');
+  confetti();
 }
-function showCongrats() {
-  $('roller').textContent = '🎉 恭喜 ' + S.draw.slots.map(x => '@' + x.e.user).join('、');
+function addChip(u) {
+  const d = document.createElement('div'); d.className = 'm-chip';
+  const sp = document.createElement('span'); sp.textContent = '@' + u;
+  d.append(avEl(u), sp);
+  $('mChips').append(d);
+}
+function confetti() {
+  const box = document.createElement('div'); box.className = 'confetti';
+  const cols = ['#f6b3c8', '#ffd96b', '#a6dccd', '#aec3f3', '#ec7f84', '#f9cd9b'];
+  for (let i = 0; i < 70; i++) {
+    const p = document.createElement('i');
+    p.style.left = Math.random() * 100 + 'vw';
+    p.style.background = cols[i % cols.length];
+    p.style.animationDuration = (1.6 + Math.random() * 1.6) + 's';
+    p.style.animationDelay = Math.random() * .4 + 's';
+    box.append(p);
+  }
+  document.body.append(box);
+  setTimeout(() => box.remove(), 3800);
 }
 
 // 某位不符合 → 從還沒抽過的人裡重抽一位替換
@@ -698,9 +889,11 @@ async function redrawOne(i) {
   S.draw.replaced.push({ user: old.user, at: new Date() });
   S.draw.slots[i] = { e, follow: false, story: false };
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await roll(pool.map(x => x.user), e.user, 1800);
-  await sleep(600);
-  showCongrats();
+  $('stageMeta').textContent = `重抽第 ${i + 1} 位（換掉 @${old.user}）`;
+  await spin(pool.map(x => x.user), e.user);
+  $('mChips').innerHTML = '';
+  S.draw.slots.forEach(x => addChip(x.e.user));
+  $('stageMeta').textContent = `🎉 恭喜！重抽時間 ${new Date().toLocaleString('zh-TW')}`;
   renderWinners();
 }
 
