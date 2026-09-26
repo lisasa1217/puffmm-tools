@@ -177,3 +177,17 @@ table td { border-bottom: 2px dashed rgba(106,81,83,.25) !important; }
 @media (prefers-reduced-motion: reduce) {
   .px-blink, .px-bob { animation: none; }
 }
+
+/* ── 可讀性修正：原本用 --accent2（現在是淡奶油色）當文字色的地方 ── */
+.notes-box {
+  background: #fff3c4 !important;
+  color: var(--o) !important;
+  border: 0 !important;
+  box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o) !important;
+  margin: 4px !important;
+}
+.notes-box strong { color: var(--o) !important; }
+.sig-tab.active { background: var(--pink) !important; color: var(--o) !important; }
+.sig-tab { color: var(--o) !important; }
+.step.on { background: var(--pink) !important; color: var(--o) !important; }
+.img-slot .clear-img { color: var(--o) !important; }
