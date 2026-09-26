@@ -12,7 +12,7 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
   - 每人機會：只算一次 / 每則符合的留言各一次（可設上限）
   - 疑似抽獎帳：用 history（她最近 40 篇貼文誰留過言）判斷
       只在抽獎文出現 → 疑似抽獎帳；一般貼文也常留言 → 老粉
-    加上帳號名稱規則（lucky/giveaway/一長串數字）。只標記不排除（她說客人害羞、第一次留言很正常）
+    加上帳號名稱規則（lucky/giveaway 等字，不看數字——台灣帳號常放生日）；抽獎文至少 2 篇才算。只標記不排除（她說客人害羞、第一次留言很正常）
 只抽得獎者、沒有備取；不符合的按「重抽這一位」從沒抽過的人裡補
 追蹤、分享限動 IG API 查不到 → 抽完在得獎卡片上手動勾。
 ==========================================================
@@ -517,7 +517,7 @@ function restoreRules() {
 // 帳號名稱像抽獎帳
 const NAME_SUS = /(lucky|luck|giveaway|give_away|prize|winner|win\d|freebie|抽獎|中獎|lottery|contest)/i;
 function nameLooksSus(u) {
-  return NAME_SUS.test(u) || /\d{5,}/.test(u) || /^(user|ig|insta)[._]?\d{3,}/i.test(u);
+  return NAME_SUS.test(u); // 不看數字：台灣帳號很常放生日
 }
 
 // 每個帳號的標記：sus（疑似抽獎帳，附原因）/ fan（老粉）/ new（第一次留言）
@@ -527,7 +527,7 @@ function profileOf(u) {
   const h = S.history && S.history.users[u];
   if (S.history) {
     if (!h) out.first = true;
-    else if (h.normal === 0 && h.giveaway >= 1) out.sus.push(`只在抽獎時出現（參加過 ${h.giveaway} 次，一般貼文 0 則）`);
+    else if (h.normal === 0 && h.giveaway >= 2) out.sus.push(`只在抽獎時出現（參加過 ${h.giveaway} 次，一般貼文 0 則）`);
     else if (h.normal >= 2) out.fan = h.normal;
   }
   return out;
