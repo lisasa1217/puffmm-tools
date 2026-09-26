@@ -2,29 +2,19 @@
 ==========================================================
   泡芙與媽 工具箱 — 首頁（給 Claude 讀的部署說明）
 ==========================================================
-這是「工作工具系統」的入口首頁，跟 puffmm-tools 這個 repo 下的
-其他 .html 檔案（labor-form.html、shorturl.html、lottery.html）是同一個 Vercel
-專案的不同頁面。網址靠 vercel.json 的 legacy "routes" 設定，
-讓 /labor-form、/shorturl 對應到 labor-form.html / shorturl.html，
-其他任何路徑（短碼）都 fallback 回這個 index.html。
-⚠️ 這個專案曾經試過新式 "rewrites"+"cleanUrls" 做萬用字元 fallback，
-   完全沒生效（短碼一律 404），後來改用舊式 "routes" 才成功，
-   之後不要再改回 rewrites。
+「工作工具系統」入口首頁。同一個 Vercel 專案的其他頁面：
+labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / fonts/。
+網址靠 vercel.json 的 legacy "routes"：/labor-form → labor-form.html 等，
+{ "handle": "filesystem" } 讓 pixel.css/pixel.js/fonts 抓得到，
+其他任何路徑（短碼）fallback 回這個 index.html。
+⚠️ 別改回新式 "rewrites"+"cleanUrls"，這個專案上短碼會全部 404。
 
-短網址功能（shorturl.html）額外需要一個 Supabase 專案（已設定好）：
-  - 資料表 short_links (code text primary key, url text, created_at, clicks)
-  - 這個檔案跟 shorturl.html 開頭都有 SUPABASE_URL / SUPABASE_ANON_KEY
-  - 短碼被打開時（例如 /abc123），vercel.json 會把它 route 回這個
-    index.html，靠最下面的 <script> 判斷網址路徑不是已知頁面時，
-    去 Supabase 查短碼、找到就跳轉過去。
+短網址：Supabase 專案 puffmm-tools，資料表 short_links（見 shorturl.html 頂部說明）。
+短碼被打開（例如 /abc123）→ 最下面的 <script> 查表並跳轉。
 
-2026-09-17：拿掉密碼保護了（使用者說沒人會用到，不需要）。
-如果之後想加回密碼，可以參考 git 歷史裡 pwGate 那段 div+script。
-
-2026-09-17：首頁重新設計過（原本的版本被使用者說「很醜」），
-改成有 hero 區塊 + 頂部分類頁籤 + 漸層圖示卡片的版本。
-之後如果要再改版，維持這個檔案的 :root 顏色變數就好，
-不要再回去用左側純文字選單的舊版樣式。
+2026-09-26：整站改成像素遊戲介面風（Cubic 11 像素字型 + SVG 像素精靈圖）。
+新增工具時：在 .cards 裡複製一個 .app-win，換 data-c 顏色與 data-px 圖示；
+圖示要新的就到 pixel.js 的 SPRITES 加一組字元圖。
 ==========================================================
 -->
 <!DOCTYPE html>
@@ -33,259 +23,193 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>泡芙與媽 工具箱</title>
+<script>
+  // 短碼網址（不是首頁/已知頁面）先把首頁藏起來，避免跳轉前閃一下
+  (function(){
+    var p = location.pathname.replace(/^\/+|\/+$/g,'');
+    if (['', 'labor-form', 'shorturl', 'lottery', 'privacy', 'index', 'index.html'].indexOf(p) === -1) document.documentElement.className = 'go';
+  })();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
-
-  :root {
-    --bg: #fffae0;
-    --surface: #ffffff;
-    --surface2: #fff5c8;
-    --border: #f0d96e;
-    --accent: #1e5929;
-    --accent-light: #2f7a3d;
-    --accent2: #fbcd2c;
-    --text: #1a2e10;
-    --muted: #7a8c3a;
-    --danger: #e05555;
-  }
-
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html.go .desk { display: none; }
+  html, body { overflow-x: hidden; }
+  body { min-height: 100vh; }
+  .desk { position: relative; min-height: 100vh; padding-bottom: 60px; }
 
-  body {
-    font-family: 'Noto Sans TC', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    -webkit-font-smoothing: antialiased;
-  }
+  /* 飄動的像素雲 */
+  .cloud { position: absolute; left: 0; width: 120px; height: 40px; opacity: .95; animation: px-drift 60s steps(120) infinite; pointer-events: none; z-index: 0; }
+  .cloud.c1 { top: 96px;  animation-duration: 70s; }
+  .cloud.c2 { top: 330px; width: 84px; height: 28px; animation-duration: 95s; animation-delay: -40s; }
+  .cloud.c3 { top: 560px; width: 150px; height: 50px; animation-duration: 120s; animation-delay: -75s; }
 
-  a { color: inherit; }
+  .wrap { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding: 0 22px; }
 
-  /* ── HERO ─────────────────────────────────────────── */
-  .hero {
-    position: relative;
-    overflow: hidden;
-    background: linear-gradient(160deg, var(--accent) 0%, #14401d 100%);
-    color: #fff;
-    padding: 44px 32px 56px;
-  }
-  .hero::before, .hero::after {
-    content: '';
-    position: absolute;
-    border-radius: 50%;
-    background: var(--accent2);
-    opacity: 0.14;
-  }
-  .hero::before { width: 260px; height: 260px; top: -120px; right: -60px; }
-  .hero::after  { width: 160px; height: 160px; bottom: -80px; right: 18%; opacity: 0.1; }
+  /* 頂端工作列 */
+  .taskbar { background: var(--teal); border-bottom: 3px solid var(--o); position: relative; z-index: 2; }
+  .taskbar .wrap { display: flex; align-items: center; gap: 12px; height: 52px; }
+  .taskbar .name { color: #fffdf2; font-size: 16px; letter-spacing: .1em; text-shadow: 2px 2px 0 var(--o); }
+  .wbtns { margin-left: auto; display: flex; gap: 8px; }
+  .wbtns b { width: 22px; height: 22px; background: #fffdf2; color: var(--o); font-size: 13px; display: flex; align-items: center; justify-content: center; font-weight: 400;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); }
+  .wbtns b:last-child { background: var(--pink); color: #fff; }
 
-  .hero-inner { position: relative; max-width: 980px; margin: 0 auto; }
-  .brand-row { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
-  .brand-mark {
-    width: 34px; height: 34px; border-radius: 10px;
-    background: var(--accent2);
+  /* 主角對話框 */
+  .dialog { display: flex; align-items: flex-end; gap: 22px; padding: 46px 0 34px; }
+  .npc { flex: 0 0 auto; width: 120px; height: 120px; background: var(--sky);
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); margin: 3px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 16px;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
-  }
-  .brand-row span {
-    font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
-    color: rgba(255,255,255,0.85);
-  }
+    background-image: linear-gradient(rgba(255,255,255,.7) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,.7) 2px, transparent 2px); background-size: 12px 12px; }
+  .npc [data-px] { width: 96px; height: 96px; }
+  .bubble { position: relative; flex: 1; background: #fffdf2; padding: 22px 26px; margin: 3px;
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); filter: drop-shadow(5px 6px 0 rgba(63,43,45,.2)); }
+  .bubble::before { content: ''; position: absolute; left: -15px; bottom: 26px; width: 12px; height: 12px; background: #fffdf2;
+    box-shadow: -3px 0 0 0 var(--o), 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o); }
+  .bubble h1 { font-size: 26px; font-weight: 400; line-height: 1.4; }
+  .bubble h1 .cur { color: var(--pink); }
+  .bubble p { margin-top: 8px; font-size: 14px; color: var(--muted); }
 
-  .hero h1 {
-    font-size: 30px;
-    font-weight: 800;
-    letter-spacing: -0.01em;
-    margin-bottom: 8px;
-  }
-  .hero p {
-    font-size: 14px;
-    color: rgba(255,255,255,0.72);
-    max-width: 440px;
-    line-height: 1.6;
-  }
+  /* 分類頁籤 */
+  .tabs-row { display: flex; gap: 12px; margin: 0 0 28px; }
+  .tab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; font-size: 15px; background: #fffdf2; color: var(--o); border: 0; margin: 3px;
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); }
+  .tab.on { background: var(--yellow); }
+  .tab em { font-style: normal; background: var(--o); color: #fffdf2; font-size: 12px; padding: 1px 7px; }
 
-  /* ── CATEGORY TABS ────────────────────────────────── */
-  .cat-bar {
-    max-width: 980px;
-    margin: -26px auto 0;
-    padding: 0 32px;
-    position: relative;
-    z-index: 2;
-    display: flex;
-    gap: 10px;
-  }
-  .cat-tab {
-    display: flex; align-items: center; gap: 7px;
-    padding: 11px 20px;
-    border-radius: 999px;
-    border: none;
-    font-family: inherit;
-    font-size: 13.5px;
-    font-weight: 700;
-    cursor: pointer;
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: 0 6px 20px rgba(30,89,41,0.16);
-  }
-  .cat-tab.active {
-    background: var(--accent2);
-    color: var(--text);
-  }
-  .cat-tab .count {
-    font-size: 11px; font-weight: 700;
-    color: var(--muted);
-    background: var(--surface2);
-    border-radius: 999px;
-    padding: 1px 7px;
-  }
-  .cat-tab.active .count { background: rgba(26,46,16,0.12); color: var(--text); }
+  .sec-title { display: flex; align-items: center; gap: 10px; font-size: 19px; margin-bottom: 22px; }
 
-  /* ── MAIN ─────────────────────────────────────────── */
-  main { max-width: 980px; margin: 0 auto; padding: 44px 32px 80px; }
+  /* 應用程式視窗卡片 */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 30px 26px; }
+  .app-win { display: flex; flex-direction: column; text-decoration: none; color: var(--o); background: var(--panel); margin: 3px;
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o);
+    filter: drop-shadow(6px 7px 0 rgba(63,43,45,.22)); transition: none; }
+  .app-win:hover { transform: translate(-3px, -3px); filter: drop-shadow(9px 10px 0 rgba(63,43,45,.22)); }
+  .app-win:active { transform: translate(3px, 3px); filter: drop-shadow(2px 3px 0 rgba(63,43,45,.22)); }
+  .app-win .tb { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; color: #fffdf2; font-size: 13px; border-bottom: 3px solid var(--o); text-shadow: 2px 2px 0 var(--o); }
+  .app-win[data-c=teal] .tb   { background: var(--teal); }
+  .app-win[data-c=pink] .tb   { background: var(--pink); }
+  .app-win[data-c=orange] .tb { background: var(--orange); }
+  .app-win[data-c=grey] .tb   { background: #b9ada2; }
+  .app-win .tb .x { display: flex; gap: 5px; }
+  .app-win .tb .x i { width: 12px; height: 12px; background: #fffdf2; display: block; box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); margin: 2px; }
+  .app-win .bd { padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 12px; flex: 1;
+    background-image: linear-gradient(rgba(255,233,204,.9) 2px, transparent 2px), linear-gradient(90deg, rgba(255,233,204,.9) 2px, transparent 2px); background-size: 16px 16px; }
+  .slot { width: 84px; height: 84px; display: flex; align-items: center; justify-content: center; background: var(--sky); margin: 3px;
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o);
+    background-image: linear-gradient(rgba(255,255,255,.7) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,.7) 2px, transparent 2px); background-size: 12px 12px; }
+  .slot [data-px] { width: 64px; height: 64px; }
+  .app-win:hover .slot [data-px] { animation: px-bob .6s steps(2) infinite; }
+  .app-win h3 { font-size: 18px; font-weight: 400; }
+  .app-win p { font-size: 13px; color: var(--muted); line-height: 1.75; flex: 1; }
+  .start { align-self: flex-start; display: inline-block; padding: 7px 16px; font-size: 14px; color: #fff; background: var(--pink); margin: 3px; text-shadow: 2px 2px 0 rgba(63,43,45,.6);
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o), inset 0 -4px 0 rgba(63,43,45,.22), inset 0 3px 0 rgba(255,255,255,.45); }
+  .app-win[data-c=teal] .start   { background: var(--teal); }
+  .app-win[data-c=orange] .start { background: var(--orange); }
 
-  .section-head { margin-bottom: 22px; }
-  .section-head h2 { font-size: 19px; font-weight: 800; margin-bottom: 4px; }
-  .section-head p { font-size: 13px; color: var(--muted); }
+  .app-win.soon { background: #f3ebe0; filter: none; box-shadow: 0 -3px 0 0 #b9ada2, 0 3px 0 0 #b9ada2, -3px 0 0 0 #b9ada2, 3px 0 0 0 #b9ada2; color: #9a8d80; }
+  .app-win.soon:hover, .app-win.soon:active { transform: none; filter: none; }
+  .app-win.soon .tb { border-bottom-color: #b9ada2; text-shadow: none; }
+  .app-win.soon .bd { background-image: none; }
+  .app-win.soon .slot { background: #e6dccf; box-shadow: 0 -3px 0 0 #b9ada2, 0 3px 0 0 #b9ada2, -3px 0 0 0 #b9ada2, 3px 0 0 0 #b9ada2; background-image: none; opacity: .8; }
+  .app-win.soon p { color: #9a8d80; }
+  .app-win.soon .start { background: #d9cfc0; color: #9a8d80; text-shadow: none; box-shadow: 0 -3px 0 0 #b9ada2, 0 3px 0 0 #b9ada2, -3px 0 0 0 #b9ada2, 3px 0 0 0 #b9ada2; }
 
-  .cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-    gap: 20px;
-  }
-
-  .card {
-    position: relative;
-    background: var(--surface);
-    border-radius: 20px;
-    padding: 26px 24px 24px;
-    text-decoration: none;
-    color: var(--text);
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    border: 1px solid rgba(240,217,110,0.6);
-    box-shadow: 0 1px 2px rgba(30,89,41,0.04), 0 10px 24px rgba(30,89,41,0.05);
-    transition: transform 0.16s ease, box-shadow 0.16s ease;
-  }
-  .card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 16px 32px rgba(30,89,41,0.14);
-  }
-  .card .icon {
-    width: 48px; height: 48px;
-    border-radius: 14px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 23px;
-    color: #fff;
-  }
-  .card .icon.g1 { background: linear-gradient(135deg, #1e5929, #3f9153); }
-  .card .icon.g2 { background: linear-gradient(135deg, #d99c00, #fbcd2c); }
-
-  .card h3 { font-size: 16px; font-weight: 800; }
-  .card p { font-size: 12.5px; color: var(--muted); line-height: 1.55; flex: 1; }
-  .card .go {
-    font-size: 12.5px;
-    font-weight: 800;
-    color: var(--accent);
-    display: flex; align-items: center; gap: 5px;
-  }
-  .card .go svg { transition: transform 0.16s ease; }
-  .card:hover .go svg { transform: translateX(3px); }
-
-  .card.soon {
-    background: var(--surface2);
-    border-style: dashed;
-    box-shadow: none;
-    opacity: 0.75;
-  }
-  .card.soon:hover { transform: none; box-shadow: none; }
-  .card.soon .icon { background: var(--border); color: var(--muted); }
-  .card.soon .go { color: var(--muted); }
-
-  footer {
-    max-width: 980px; margin: 0 auto; padding: 0 32px 40px;
-    font-size: 11.5px; color: var(--muted); font-family: 'DM Mono', monospace;
-  }
+  /* 底部狀態列 */
+  .status { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: #fffdf2; border-top: 3px solid var(--o); font-size: 12px; color: var(--muted); }
+  .status .wrap { display: flex; align-items: center; gap: 12px; height: 34px; }
+  .status .wrap span:last-child { margin-left: auto; }
 
   @media (max-width: 640px) {
-    .hero { padding: 32px 20px 46px; }
-    .hero h1 { font-size: 24px; }
-    .cat-bar { padding: 0 20px; overflow-x: auto; }
-    main { padding: 36px 20px 60px; }
-    footer { padding: 0 20px 30px; }
+    .dialog { flex-direction: column; align-items: flex-start; padding-top: 32px; gap: 20px; }
+    .bubble::before { left: 40px; top: -15px; bottom: auto; box-shadow: -3px 0 0 0 var(--o), 0 -3px 0 0 var(--o), 3px 0 0 0 var(--o); }
+    .bubble h1 { font-size: 21px; }
+    .wrap { padding: 0 16px; }
   }
 </style>
+<link rel="stylesheet" href="/pixel.css">
+<script src="/pixel.js"></script>
 </head>
 <body>
 
 <div id="hubRoot">
-  <div class="hero">
-    <div class="hero-inner">
-      <div class="brand-row">
-        <div class="brand-mark">🧸</div>
-        <span>PUFF &amp; MOM · 工作工具箱</span>
-      </div>
-      <h1>嗨，需要用哪個工具？</h1>
-      <p>把平常要用的小工具都收在這裡，點卡片直接開啟。</p>
+<div class="desk">
+  <div class="cloud c1" data-px="cloud"></div>
+  <div class="cloud c2" data-px="cloud"></div>
+  <div class="cloud c3" data-px="cloud"></div>
+
+  <div class="taskbar">
+    <div class="wrap">
+      <i data-px="bear" class="px-s"></i>
+      <span class="name">PUFF &amp; MOM 工具箱</span>
+      <div class="wbtns"><b>_</b><b>□</b><b>×</b></div>
     </div>
   </div>
 
-  <div class="cat-bar">
-    <button class="cat-tab active">🛠️ 工具 <span class="count">3</span></button>
-  </div>
-
-  <main>
-    <div class="section-head">
-      <h2>🛠️ 工具</h2>
-      <p>點卡片直接開啟</p>
-    </div>
-
-    <div class="cards">
-      <a class="card" href="/labor-form">
-        <div class="icon g1">📋</div>
-        <h3>勞報單填寫助手</h3>
-        <p>上傳廠商給的勞報單（PDF / Word / Excel），自動帶入姓名、身分證、存摺、簽名，填好直接下載或傳 LINE。</p>
-        <div class="go">開啟工具
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-        </div>
-      </a>
-
-      <a class="card" href="/shorturl">
-        <div class="icon g2">🔗</div>
-        <h3>縮短網址產生器</h3>
-        <p>貼上一長串網址，產生一個好記、好分享的短連結，點開會自動跳轉回原始網址。</p>
-        <div class="go">開啟工具
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-        </div>
-      </a>
-
-      <a class="card" href="/lottery">
-        <div class="icon g1">🎁</div>
-        <h3>IG 留言抽獎</h3>
-        <p>選一篇抽獎貼文，設定關鍵字、tag 人數等規則，自動篩掉不符資格和疑似抽獎帳，公平抽出得獎者。</p>
-        <div class="go">開啟工具
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-        </div>
-      </a>
-
-      <div class="card soon">
-        <div class="icon">✨</div>
-        <h3>之後想加什麼？</h3>
-        <p>這裡還可以放更多小工具，想到需要什麼再跟 Claude 說一聲就好。</p>
-        <div class="go">敬請期待</div>
+  <div class="wrap">
+    <section class="dialog">
+      <div class="npc"><i data-px="bear" class="px-bob"></i></div>
+      <div class="bubble">
+        <h1>嗨！今天要用哪個工具？<span class="cur px-blink">▌</span></h1>
+        <p>點下面的視窗就能開始 ♥</p>
       </div>
-    </div>
-  </main>
+    </section>
 
-  <footer>v1.0 · 泡芙與媽 工具箱</footer>
+    <div class="tabs-row">
+      <button class="tab on"><i data-px="star" class="px-s"></i>工具 <em>3</em></button>
+    </div>
+
+    <div class="sec-title"><i data-px="coin" class="px-s"></i>我的小工具</div>
+
+    <main class="cards">
+      <a class="app-win" data-c="teal" href="/labor-form">
+        <div class="tb"><span>labor_form.exe</span><span class="x"><i></i><i></i></span></div>
+        <div class="bd">
+          <div class="slot"><i data-px="clip"></i></div>
+          <h3>勞報單填寫助手</h3>
+          <p>上傳廠商給的勞報單（PDF / Word / Excel），自動帶入姓名、身分證、存摺、簽名，填好直接下載或傳 LINE。</p>
+          <span class="start">START ▶</span>
+        </div>
+      </a>
+
+      <a class="app-win" data-c="pink" href="/shorturl">
+        <div class="tb"><span>short_url.exe</span><span class="x"><i></i><i></i></span></div>
+        <div class="bd">
+          <div class="slot"><i data-px="link"></i></div>
+          <h3>縮短網址產生器</h3>
+          <p>把長長的團購／表單連結變短，可以預覽、再複製，用完也能刪掉。</p>
+          <span class="start">START ▶</span>
+        </div>
+      </a>
+
+      <a class="app-win" data-c="orange" href="/lottery">
+        <div class="tb"><span>lottery.exe</span><span class="x"><i></i><i></i></span></div>
+        <div class="bd">
+          <div class="slot"><i data-px="gift"></i></div>
+          <h3>IG 留言抽獎</h3>
+          <p>選一則貼文，依留言條件抽出得獎者，可單獨重抽。（目前是示範模式）</p>
+          <span class="start">START ▶</span>
+        </div>
+      </a>
+
+      <div class="app-win soon" data-c="grey">
+        <div class="tb"><span>new_tool.???</span><span class="x"><i></i><i></i></span></div>
+        <div class="bd">
+          <div class="slot"><i data-px="soon"></i></div>
+          <h3>之後想加什麼？</h3>
+          <p>還有空位，需要什麼小工具跟 Claude 說一聲就好。</p>
+          <span class="start">LOCKED</span>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="status"><div class="wrap"><i data-px="heart" class="px-s"></i><span>READY</span><span>v2.0 · puff&amp;mom toolbox</span></div></div>
 </div>
 
 <!--
-  短碼跳轉：如果網址路徑不是「/」也不是已知頁面（labor-form、shorturl），
-  就當作是短網址代碼，去 Supabase 查詢並跳轉。
+  短碼跳轉：網址路徑不是「/」也不是已知頁面，就當作短網址代碼，去 Supabase 查詢並跳轉。
 -->
 <script>
 (async function(){
@@ -293,13 +217,14 @@
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rb2Nsd3BmdWd0YWVwd3BnbndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MjI2ODMsImV4cCI6MjEwNTE5ODY4M30.u94y7QHG7MalAghzF4lp40X9IIuHgMxoMncg1Zhx32w';
 
   const path = location.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
-  const KNOWN_PAGES = ['', 'labor-form', 'shorturl', 'lottery', 'privacy', 'index'];
+  const KNOWN_PAGES = ['', 'labor-form', 'shorturl', 'lottery', 'privacy', 'index', 'index.html'];
   if (KNOWN_PAGES.includes(path)) return; // normal hub page, do nothing
 
-  document.getElementById('hubRoot').innerHTML = `
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;font-family:'Noto Sans TC',sans-serif;color:#1a2e10;">
-      <div style="font-size:15px;">🔗 跳轉中…</div>
-    </div>`;
+  const box = (inner) => `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:20px;position:relative;z-index:5;">${inner}</div>`;
+  document.getElementById('hubRoot').innerHTML = box(`
+      <i data-px="link" class="px-l px-bob"></i>
+      <div style="font-size:16px;">跳轉中<span class="px-blink">…</span></div>`);
+  PX.hydrate();
 
   try {
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -308,13 +233,13 @@
     sb.from('short_links').update({ clicks: (data.clicks || 0) + 1 }).eq('code', path); // best-effort, not awaited
     location.replace(data.url);
   } catch (e) {
-    document.getElementById('hubRoot').innerHTML = `
-      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;font-family:'Noto Sans TC',sans-serif;color:#1a2e10;text-align:center;padding:20px;">
-        <div style="font-size:32px;">🔍</div>
-        <div style="font-size:15px;font-weight:700;">找不到這個短網址</div>
-        <div style="font-size:13px;color:#7a8c3a;">代碼「${path}」不存在，或已經被刪除</div>
-        <a href="/" style="margin-top:10px;font-size:13px;color:#1e5929;font-weight:700;">回工具箱首頁</a>
-      </div>`;
+    const safe = path.replace(/[&<>"']/g, '');
+    document.getElementById('hubRoot').innerHTML = box(`
+      <i data-px="soon" class="px-l"></i>
+      <div style="font-size:18px;">找不到這個短網址</div>
+      <div style="font-size:13px;color:#8a6a66;">代碼「${safe}」不存在，或已經被刪除了</div>
+      <a href="/" class="btn" style="padding:10px 18px;text-decoration:none;display:inline-block;">回工具箱首頁</a>`);
+    PX.hydrate();
   }
 })();
 </script>

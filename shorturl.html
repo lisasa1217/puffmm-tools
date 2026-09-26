@@ -1,25 +1,23 @@
 <!--
 ==========================================================
-  縮短網址產生器 — 給 Claude 讀的部署說明
+  縮短網址產生器 — 給 Claude 讀的說明
 ==========================================================
-需要一個 Supabase 專案，資料表：
+資料庫：Supabase 專案 puffmm-tools，資料表 short_links
+  code text primary key, url text not null, created_at timestamptz default now(),
+  clicks int default 0, note text（備註，可有可無）
 
-  create table short_links (
-    code text primary key,
-    url text not null,
-    created_at timestamptz default now(),
-    clicks int default 0
-  );
-  alter table short_links enable row level security;
+RLS 需要的 policy（在 Supabase SQL Editor 執行一次）：
   create policy "anyone can read"   on short_links for select using (true);
   create policy "anyone can insert" on short_links for insert with check (true);
-  create policy "anyone can update" on short_links for update using (true);
+  create policy "anyone can update" on short_links for update using (true);   -- 點擊統計
+  create policy "anyone can delete" on short_links for delete using (true);   -- 刪除功能
+  alter table short_links add column if not exists note text;                 -- 備註欄
 
-下面 SUPABASE_URL / SUPABASE_ANON_KEY 兩個常數要填成實際值，
-這頁才能真的存短網址進資料庫。填之前這頁會顯示「尚未設定」提示。
+⚠️ RLS 沒有 delete/update policy 時，REST 會「假成功」（204 但 0 筆受影響）。
+   這頁刪除時會用 select() 檢查真的有刪到，沒刪到就顯示設定提示。
+   備註欄不存在時，新增/讀取會自動退回沒有備註的版本。
 
-短網址打開時的跳轉邏輯寫在 index.html 裡（不是這一頁），
-因為短碼網址（例如 /abc123）會被 vercel.json rewrite 回首頁去查表。
+短碼跳轉邏輯在 index.html（vercel.json 把未知路徑 route 回首頁去查表）。
 ==========================================================
 -->
 <!DOCTYPE html>
@@ -30,234 +28,337 @@
 <title>縮短網址產生器</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap');
-
-  :root {
-    --bg: #fffae0;
-    --surface: #ffffff;
-    --surface2: #fff5c8;
-    --border: #f0d96e;
-    --accent: #1e5929;
-    --accent2: #fbcd2c;
-    --text: #1a2e10;
-    --muted: #7a8c3a;
-    --danger: #e05555;
-  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  body { min-height: 100vh; }
+  header { padding: 16px 28px; display: flex; align-items: center; gap: 14px; }
+  header a { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+  header span { margin-left: auto; font-size: 12px; }
 
-  header {
-    border-bottom: 1px solid var(--border);
-    padding: 20px 32px;
-    display: flex; align-items: center; gap: 14px;
-    background: var(--surface);
-  }
-  header a { display:flex; align-items:center; gap:14px; text-decoration:none; color:inherit; }
-  .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(30,89,41,0.4); }
-  header h1 { font-size: 16px; font-weight: 500; letter-spacing: 0.08em; }
-  header span { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; margin-left: auto; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 34px 18px 90px; }
+  .title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  .title-row h2 { font-size: 22px; font-weight: 400; }
+  .title-row small { color: var(--muted); font-size: 12px; }
 
-  .wrap { max-width: 640px; margin: 0 auto; padding: 40px 20px 80px; }
-  .card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 16px; padding: 28px; }
-  .card + .card { margin-top: 20px; }
-  label { display:block; font-size:12.5px; font-weight:700; color: var(--muted); margin-bottom:6px; }
-  input[type=text], input[type=url] {
-    width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px;
-    font-size:14px; font-family:inherit; background: var(--surface2); color: var(--text); outline:none;
-  }
-  input:focus { border-color: var(--accent); }
-  .field { margin-bottom: 16px; }
-  .hint { font-size:11.5px; color: var(--muted); margin-top:4px; }
-  .btn {
-    width:100%; padding:13px; background: var(--accent); color: var(--accent2);
-    border:none; border-radius:10px; font-size:15px; font-weight:700; cursor:pointer;
-    letter-spacing:0.03em; font-family:inherit;
-  }
-  .btn:hover { background:#174d22; }
-  .btn:disabled { opacity:0.5; cursor:not-allowed; }
-  .err { font-size:12.5px; color: var(--danger); margin-top:10px; min-height:16px; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 13px; margin-bottom: 8px; }
+  .field input { width: calc(100% - 6px); padding: 12px 14px; font-size: 14px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } }
 
-  .result {
-    margin-top:18px; padding:16px; background: var(--surface2); border-radius:12px;
-    display:none; align-items:center; gap:10px; flex-wrap:wrap;
-  }
-  .result.show { display:flex; }
-  .result .link { flex:1; min-width:180px; font-family:'DM Mono',monospace; font-size:13.5px; color: var(--accent); word-break: break-all; }
-  .copy-btn {
-    padding:8px 14px; background: var(--accent); color: var(--accent2); border:none;
-    border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit;
-  }
+  .btn { padding: 12px 20px; font-size: 15px; }
+  .btn.full { width: calc(100% - 6px); }
+  .btn.sm { padding: 6px 12px; font-size: 12px; }
+  .btn.teal { background: var(--teal) !important; }
+  .btn.blue { background: var(--blue) !important; }
+  .btn.red  { background: var(--danger) !important; }
+  .btn.ghost { background: var(--panel) !important; color: var(--o) !important; text-shadow: none; }
+  .err { font-size: 13px; color: var(--danger); min-height: 18px; margin-top: 12px; }
 
-  .list-title { font-size:13px; font-weight:700; color: var(--muted); margin-bottom:10px; }
-  table { width:100%; border-collapse: collapse; font-size:13px; }
-  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); }
-  th { color: var(--muted); font-size:11.5px; font-weight:700; }
-  td.url-cell { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  td.code-cell { font-family:'DM Mono',monospace; color: var(--accent); font-weight:700; }
-  .empty { font-size:13px; color: var(--muted); padding:12px 0; }
-  .notice {
-    background:#fff3a8; border:1px solid var(--accent2); border-radius:10px; padding:12px 14px;
-    font-size:12.5px; color:#5a4a00; margin-bottom:20px; line-height:1.6;
-  }
+  .result { display: none; margin-top: 20px; padding: 16px; background: var(--teal-l);
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); }
+  .result.show { display: block; }
+  .result .lbl { font-size: 12px; margin-bottom: 6px; }
+  .result .link { font-size: 18px; word-break: break-all; margin-bottom: 12px; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .list-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .list-head h3 { font-size: 17px; font-weight: 400; margin-right: auto; }
+  .search { flex: 1 1 160px; max-width: 240px; }
+  .search input { width: calc(100% - 6px); padding: 8px 10px; font-size: 13px; }
+
+  .item { padding: 14px; margin: 14px 3px; background: #fffdf2;
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); }
+  .item .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .item .note { font-size: 15px; }
+  .item .note.none { color: var(--muted); }
+  .item .meta { margin-left: auto; font-size: 11px; color: var(--muted); }
+  .item .short { font-size: 15px; color: #d0567f; margin: 8px 0 4px; word-break: break-all; }
+  .item .orig { font-size: 12px; color: var(--muted); word-break: break-all;
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .item .orig.open { -webkit-line-clamp: unset; }
+  .item .btns { margin-top: 12px; }
+  .empty { padding: 26px 0; text-align: center; color: var(--muted); font-size: 13px; }
+
+  .notice { padding: 14px 16px; margin: 3px 3px 26px !important; background: #fff3b0 !important; font-size: 13px; line-height: 1.7; }
+  .notice pre { background: #fffdf2; padding: 10px; margin: 10px 0; font-size: 12px; white-space: pre-wrap; word-break: break-all;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); }
+
+  .modal-bg { position: fixed; inset: 0; background: rgba(63,43,45,.55); display: none; align-items: center; justify-content: center; z-index: 50; padding: 18px; }
+  .modal-bg.show { display: flex; }
+  .modal { width: 100%; max-width: 520px; background: var(--panel); position: relative; margin: 3px;
+    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); }
+  .modal .tb { background: var(--pink); color: #fff; padding: 8px 12px; font-size: 13px; display: flex; justify-content: space-between; border-bottom: 3px solid var(--o); text-shadow: 2px 2px 0 var(--o); }
+  .modal .bd { padding: 18px; font-size: 14px; line-height: 1.7; }
+  .modal .full-url { background: #fffdf2; padding: 10px; margin: 10px 3px 16px; font-size: 12px; word-break: break-all; max-height: 150px; overflow: auto;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--o); color: #fffdf2; padding: 10px 18px; font-size: 13px; z-index: 60; display: none; }
+  .toast.show { display: block; }
 </style>
+<link rel="stylesheet" href="/pixel.css">
+<script src="/pixel.js"></script>
 </head>
 <body>
 
 <header>
   <a href="/" title="回工具首頁">
-    <div class="logo-dot"></div>
+    <i data-px="link" class="px-s"></i>
     <h1>縮短網址產生器</h1>
   </a>
-  <span>v1.0 · 泡芙與媽工具箱</span>
+  <span>PUFF&amp;MOM TOOLBOX</span>
 </header>
 
 <div class="wrap">
 
-  <div id="setupNotice" class="notice" style="display:none;">
-    ⚠️ 這個工具還沒接上資料庫，暫時無法使用。請聯絡開發者（Claude）完成 Supabase 設定。
+  <div class="title-row">
+    <i data-px="link" class="px-m px-bob"></i>
+    <div><h2>把長網址變短</h2><small>團購連結、表單連結都可以，用完可以刪掉</small></div>
+  </div>
+
+  <div id="setupNotice" class="notice" style="display:none;">尚未接上資料庫，暫時無法使用。</div>
+  <div id="policyNotice" class="notice" style="display:none;">
+    ⚠️ 資料庫還沒開放「刪除／備註」功能。請到 Supabase 的 SQL Editor 貼上這段，按 Run 一次就好：
+    <pre id="sqlText">create policy "anyone can delete" on short_links for delete using (true);
+create policy "anyone can update" on short_links for update using (true);
+alter table short_links add column if not exists note text;</pre>
+    <button class="btn sm" onclick="copyText(document.getElementById('sqlText').textContent, '已複製設定')">複製這段</button>
   </div>
 
   <div class="card">
     <div class="field">
       <label>要縮短的網址</label>
-      <input type="url" id="longUrl" placeholder="https://example.com/一大串很長的網址...">
+      <input type="url" id="longUrl" placeholder="https://...">
     </div>
-    <div class="field">
-      <label>自訂短碼（不填會自動產生一組）</label>
-      <input type="text" id="customCode" placeholder="例如 sale2026">
-      <div class="hint">只能用英文字母、數字、-、_，3-20 個字</div>
+    <div class="row2">
+      <div class="field">
+        <label>自訂短碼（不填會自動產生）</label>
+        <input type="text" id="customCode" placeholder="例如 sale10">
+        <div class="hint">英文、數字、-、_，3–20 字</div>
+      </div>
+      <div class="field">
+        <label>備註（自己看的，可不填）</label>
+        <input type="text" id="noteInput" placeholder="例如 10月玩具團">
+        <div class="hint">之後找連結、刪連結比較好認</div>
+      </div>
     </div>
-    <button class="btn" id="genBtn" onclick="generateLink()">產生短網址</button>
+    <button class="btn full" id="genBtn" onclick="generateLink()">產生短網址 ▶</button>
     <div class="err" id="genErr"></div>
 
     <div class="result" id="result">
+      <div class="lbl">✔ 產生好了</div>
       <div class="link" id="resultLink"></div>
-      <button class="copy-btn" onclick="copyResult()">📋 複製</button>
+      <div class="btns">
+        <button class="btn sm teal" onclick="copyText(lastShort, '已複製短網址')">複製短網址</button>
+        <button class="btn sm blue" onclick="previewItem(lastCode)">預覽原網址</button>
+        <button class="btn sm ghost" onclick="window.open(lastShort,'_blank')">開新分頁測試</button>
+      </div>
     </div>
   </div>
 
-  <div class="card">
-    <div class="list-title">最近建立的短網址</div>
+  <div class="card" id="listCard">
+    <div class="list-head">
+      <h3>我的短網址 <small id="countTxt" style="color:var(--muted);font-size:12px"></small></h3>
+      <div class="search"><input type="text" id="searchInput" placeholder="搜尋備註/網址" oninput="renderList()"></div>
+      <button class="btn sm red" id="clearAllBtn" onclick="clearAll()">清空全部</button>
+    </div>
     <div id="listWrap"><div class="empty">載入中…</div></div>
   </div>
 
 </div>
 
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="tb"><span id="modalTitle">預覽</span><span style="cursor:pointer" onclick="closeModal()">×</span></div>
+    <div class="bd" id="modalBody"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
 <script>
   const SUPABASE_URL = 'https://nkoclwpfugtaepwpgnwl.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rb2Nsd3BmdWd0YWVwd3BnbndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MjI2ODMsImV4cCI6MjEwNTE5ODY4M30.u94y7QHG7MalAghzF4lp40X9IIuHgMxoMncg1Zhx32w';
-  const configured = !SUPABASE_URL.startsWith('PLACEHOLDER');
-  const sb = configured ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  if (!configured) {
-    document.getElementById('setupNotice').style.display = 'block';
-    document.getElementById('genBtn').disabled = true;
-    document.getElementById('listWrap').innerHTML = '<div class="empty">尚未設定資料庫</div>';
+  let ITEMS = [];
+  let HAS_NOTE = true;      // note 欄位存在與否（讀取時偵測）
+  let lastShort = '', lastCode = '';
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const shortOf = code => location.origin + '/' + code;
+
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 1600);
+  }
+
+  async function copyText(text, msg) {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) {
+      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    toast(msg || '已複製');
   }
 
   function randomCode(len = 6) {
-    const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉容易看錯的 0/O/1/l/i
-    let out = '';
-    for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let out = ''; for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
     return out;
   }
 
+  function fmtDate(iso) {
+    const d = new Date(iso); if (isNaN(d)) return '';
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getMonth()+1}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  function hostOf(u) { try { return new URL(u).host; } catch (e) { return ''; } }
+
+  /* ── 產生 ─────────────────────────────────── */
   async function generateLink() {
-    if (!configured) return;
-    const errEl = document.getElementById('genErr');
-    errEl.textContent = '';
-    const url = document.getElementById('longUrl').value.trim();
-    let code = document.getElementById('customCode').value.trim();
+    const errEl = $('genErr'); errEl.textContent = '';
+    const url = $('longUrl').value.trim();
+    let code = $('customCode').value.trim();
+    const note = $('noteInput').value.trim();
+    const custom = !!code;
 
     if (!url) { errEl.textContent = '請先貼上要縮短的網址'; return; }
     try { new URL(url); } catch (e) { errEl.textContent = '網址格式不正確，記得要有 https://'; return; }
+    if (custom && !/^[a-zA-Z0-9_-]{3,20}$/.test(code)) { errEl.textContent = '自訂短碼只能用英文、數字、- 或 _，長度 3–20'; return; }
+    if (!custom) code = randomCode();
 
-    if (code) {
-      if (!/^[a-zA-Z0-9_-]{3,20}$/.test(code)) {
-        errEl.textContent = '自訂短碼只能用英文、數字、- 或 _，長度 3-20';
-        return;
-      }
-    } else {
-      code = randomCode();
-    }
-
-    const btn = document.getElementById('genBtn');
-    btn.disabled = true; btn.textContent = '產生中…';
-
+    const btn = $('genBtn'); btn.disabled = true; btn.textContent = '產生中…';
     try {
-      let attempt = 0;
-      while (attempt < 5) {
-        const { error } = await sb.from('short_links').insert({ code, url });
-        if (!error) break;
-        if (error.code === '23505') { // unique violation
-          if (document.getElementById('customCode').value.trim()) {
-            errEl.textContent = '這個短碼已經有人用了，換一個試試';
-            btn.disabled = false; btn.textContent = '產生短網址';
-            return;
-          }
-          code = randomCode(); attempt++;
-          continue;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const row = { code, url };
+        if (note && HAS_NOTE) row.note = note;
+        let { error } = await sb.from('short_links').insert(row);
+        if (error && row.note && /note/.test(error.message || '')) {   // 備註欄還沒建：退回無備註
+          HAS_NOTE = false; delete row.note;
+          ({ error } = await sb.from('short_links').insert(row));
+        }
+        if (!error) { lastCode = code; lastShort = shortOf(code); break; }
+        if (error.code === '23505') {
+          if (custom) { errEl.textContent = '這個短碼已經有人用了，換一個試試'; return; }
+          code = randomCode(); continue;
         }
         throw error;
       }
-      showResult(code);
-      document.getElementById('longUrl').value = '';
-      document.getElementById('customCode').value = '';
-      loadList();
+      $('resultLink').textContent = lastShort;
+      $('result').classList.add('show');
+      $('longUrl').value = ''; $('customCode').value = ''; $('noteInput').value = '';
+      if (note && !HAS_NOTE) $('policyNotice').style.display = 'block';
+      await loadList();
     } catch (e) {
       console.error(e);
-      errEl.textContent = '建立失敗，請稍後再試（' + (e.message || '未知錯誤') + '）';
-    } finally {
-      btn.disabled = false; btn.textContent = '產生短網址';
+      errEl.textContent = '建立失敗：' + (e.message || '未知錯誤');
+    } finally { btn.disabled = false; btn.textContent = '產生短網址 ▶'; }
+  }
+
+  /* ── 列表 ─────────────────────────────────── */
+  async function loadList() {
+    let res = await sb.from('short_links').select('code,url,clicks,created_at,note').order('created_at', { ascending: false }).limit(500);
+    if (res.error && /note/.test(res.error.message || '')) {
+      HAS_NOTE = false;
+      res = await sb.from('short_links').select('code,url,clicks,created_at').order('created_at', { ascending: false }).limit(500);
     }
+    if (res.error) { $('listWrap').innerHTML = '<div class="empty">讀取失敗：' + esc(res.error.message) + '</div>'; return; }
+    ITEMS = res.data || [];
+    if (!HAS_NOTE) $('policyNotice').style.display = 'block';
+    renderList();
   }
 
-  function showResult(code) {
-    const link = location.origin + '/' + code;
-    document.getElementById('resultLink').textContent = link;
-    document.getElementById('result').classList.add('show');
+  function renderList() {
+    const q = ($('searchInput').value || '').trim().toLowerCase();
+    const shown = ITEMS.filter(r => !q || (r.note || '').toLowerCase().includes(q) || r.url.toLowerCase().includes(q) || r.code.toLowerCase().includes(q));
+    $('countTxt').textContent = ITEMS.length ? `（共 ${ITEMS.length} 筆）` : '';
+    $('clearAllBtn').style.display = ITEMS.length ? '' : 'none';
+    if (!ITEMS.length) { $('listWrap').innerHTML = '<div class="empty">還沒有短網址，上面貼一個試試 ♥</div>'; return; }
+    if (!shown.length) { $('listWrap').innerHTML = '<div class="empty">找不到符合的</div>'; return; }
+    $('listWrap').innerHTML = shown.map(r => `
+      <div class="item" data-code="${esc(r.code)}">
+        <div class="top">
+          <span class="note ${r.note ? '' : 'none'}">${r.note ? esc(r.note) : '（沒有備註）'}</span>
+          <span class="meta">${fmtDate(r.created_at)} · 點擊 ${r.clicks || 0}</span>
+        </div>
+        <div class="short">${esc(shortOf(r.code))}</div>
+        <div class="orig" title="點一下展開">${esc(r.url)}</div>
+        <div class="btns">
+          <button class="btn sm teal" data-act="copy">複製</button>
+          <button class="btn sm blue" data-act="preview">預覽</button>
+          <button class="btn sm red" data-act="del">刪除</button>
+        </div>
+      </div>`).join('');
   }
 
-  function copyResult() {
-    const text = document.getElementById('resultLink').textContent;
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = event.target;
-      const old = btn.textContent;
-      btn.textContent = '✓ 已複製';
-      setTimeout(() => { btn.textContent = old; }, 1500);
+  $('listWrap').addEventListener('click', e => {
+    const item = e.target.closest('.item'); if (!item) return;
+    const code = item.dataset.code;
+    const act = e.target.dataset.act;
+    if (act === 'copy') copyText(shortOf(code), '已複製短網址');
+    else if (act === 'preview') previewItem(code);
+    else if (act === 'del') deleteOne(code);
+    else if (e.target.classList.contains('orig')) e.target.classList.toggle('open');
+  });
+
+  /* ── 預覽 ─────────────────────────────────── */
+  function previewItem(code) {
+    const r = ITEMS.find(x => x.code === code); if (!r) return;
+    $('modalTitle').textContent = '預覽原網址';
+    $('modalBody').innerHTML = `
+      ${r.note ? `<div>📌 ${esc(r.note)}</div>` : ''}
+      <div>短網址：<b>${esc(shortOf(r.code))}</b></div>
+      <div>會跳到：<b>${esc(hostOf(r.url))}</b></div>
+      <div class="full-url">${esc(r.url)}</div>
+      <div class="btns">
+        <button class="btn sm blue" id="pvGo">前往原網址 ↗</button>
+        <button class="btn sm teal" id="pvCopyShort">複製短網址</button>
+        <button class="btn sm ghost" id="pvCopyOrig">複製原網址</button>
+      </div>`;
+    $('pvGo').onclick = () => window.open(r.url, '_blank', 'noopener');
+    $('pvCopyShort').onclick = () => copyText(shortOf(r.code), '已複製短網址');
+    $('pvCopyOrig').onclick = () => copyText(r.url, '已複製原網址');
+    $('modalBg').classList.add('show');
+  }
+  function closeModal() { $('modalBg').classList.remove('show'); }
+
+  /* ── 刪除 ─────────────────────────────────── */
+  function confirmBox(title, html, okText) {
+    return new Promise(resolve => {
+      $('modalTitle').textContent = title;
+      $('modalBody').innerHTML = html + `<div class="btns" style="margin-top:16px">
+        <button class="btn sm red" id="cfOk">${okText}</button><button class="btn sm ghost" id="cfNo">取消</button></div>`;
+      $('modalBg').classList.add('show');
+      $('cfOk').onclick = () => { closeModal(); resolve(true); };
+      $('cfNo').onclick = () => { closeModal(); resolve(false); };
     });
   }
 
-  async function loadList() {
-    if (!configured) return;
-    const wrap = document.getElementById('listWrap');
-    const { data, error } = await sb.from('short_links')
-      .select('code, url, clicks, created_at')
-      .order('created_at', { ascending: false })
-      .limit(30);
-    if (error) { wrap.innerHTML = '<div class="empty">讀取失敗</div>'; return; }
-    if (!data || !data.length) { wrap.innerHTML = '<div class="empty">還沒有建立過短網址</div>'; return; }
-
-    wrap.innerHTML = `
-      <table>
-        <thead><tr><th>短碼</th><th>原始網址</th><th>點擊</th></tr></thead>
-        <tbody>
-          ${data.map(row => `
-            <tr>
-              <td class="code-cell">${row.code}</td>
-              <td class="url-cell" title="${escapeHtml(row.url)}">${escapeHtml(row.url)}</td>
-              <td>${row.clicks || 0}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`;
+  async function doDelete(query) {
+    const { data, error } = await query.select('code');
+    if (error) { toast('刪除失敗：' + error.message); return false; }
+    if (!data || !data.length) { $('policyNotice').style.display = 'block'; window.scrollTo({ top: 0, behavior: 'smooth' }); toast('資料庫還沒開放刪除，請先貼上方那段設定'); return false; }
+    return data.length;
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  async function deleteOne(code) {
+    const r = ITEMS.find(x => x.code === code); if (!r) return;
+    const ok = await confirmBox('刪除短網址', `確定刪除這個短網址嗎？<br>刪掉之後這個連結就打不開了。<div class="full-url">${esc(shortOf(code))}${r.note ? '<br>' + esc(r.note) : ''}</div>`, '刪除');
+    if (!ok) return;
+    const n = await doDelete(sb.from('short_links').delete().eq('code', code));
+    if (n) { toast('已刪除'); await loadList(); }
   }
 
+  async function clearAll() {
+    const ok = await confirmBox('清空全部', `會把目前 <b>${ITEMS.length}</b> 筆短網址全部刪除，而且這些連結都會失效，無法復原。`, '全部刪除');
+    if (!ok) return;
+    const n = await doDelete(sb.from('short_links').delete().neq('code', ''));
+    if (n) { toast(`已刪除 ${n} 筆`); await loadList(); }
+  }
+
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
   loadList();
 </script>
-
 </body>
 </html>

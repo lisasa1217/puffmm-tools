@@ -1,0 +1,179 @@
+/* ==========================================================
+   泡芙與媽 工具箱 — 像素遊戲介面共用樣式
+   所有頁面（首頁 / 勞報單 / 短網址 / 抽獎）都在自己的 <style> 之後載入這份，
+   靠覆寫同名 CSS 變數 + 幾個共用元件，把整站變成像素風。
+   ⚠️ 路由要有 { "handle": "filesystem" }，這個檔案才抓得到（見 vercel.json）
+   ========================================================== */
+@font-face {
+  font-family: 'Cubic 11';
+  src: url('/fonts/Cubic_11.woff2') format('woff2');
+  font-display: swap;
+}
+
+:root {
+  --o: #3f2b2d;            /* 像素外框（深咖啡） */
+  --sky: #cfdcff;
+  --panel: #fff9e6;        /* 視窗內容底色 */
+  --panel2: #ffe9cc;
+  --pink: #ee8fb1;
+  --pink-l: #f9c9db;
+  --teal: #5fb3a5;
+  --teal-l: #a9ded3;
+  --blue: #6e92e8;
+  --orange: #f0a04b;
+  --yellow: #f6c945;
+
+  /* 覆寫各頁原本共用的變數名稱 */
+  --bg: #fff1ad;
+  --surface: #fff9e6;
+  --surface2: #ffe9cc;
+  --border: #3f2b2d;
+  --accent: #ee8fb1;
+  --accent2: #fff3b0;
+  --text: #3f2b2d;
+  --muted: #8a6a66;
+  --danger: #e2514f;
+  --warn-bg: #ffe0c2;
+  --warn: #b4540a;
+  --ok-bg: #d9f1e5;
+}
+
+* { border-radius: 0 !important; }
+canvas, img { image-rendering: auto; }
+
+html { font-size: 15px; }
+body, button, input, select, textarea {
+  font-family: 'Cubic 11', 'Noto Sans TC', monospace !important;
+  letter-spacing: 0.02em;
+}
+body {
+  color: var(--o) !important;
+  background-color: #fff1ad !important;
+  background-image:
+    linear-gradient(rgba(255,255,255,.6) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(255,255,255,.6) 2px, transparent 2px) !important;
+  background-size: 28px 28px !important;
+  background-attachment: fixed;
+}
+::selection { background: var(--pink); color: #fff; }
+
+/* ── 像素精靈圖 ─────────────────────────────────── */
+[data-px] { display: inline-block; width: 32px; height: 32px; flex: 0 0 auto; vertical-align: middle; }
+[data-px] svg { display: block; }
+.px-s { width: 24px !important; height: 24px !important; }
+.px-m { width: 48px !important; height: 48px !important; }
+.px-l { width: 80px !important; height: 80px !important; }
+
+/* ── 像素外框（用 box-shadow 做缺角邊框，不吃版面空間） ── */
+.px-box, .card, .stat, .post, .notice, .pass-box, .sidebar, .winners, .announce, .stage, .roller, .win, .tabs, .seg {
+  background: var(--panel);
+  border: 0 !important;
+  box-shadow:
+    0 -3px 0 0 var(--o), 0 3px 0 0 var(--o),
+    -3px 0 0 0 var(--o), 3px 0 0 0 var(--o) !important;
+  margin-top: 3px;
+  margin-bottom: 3px;
+}
+.card { padding: 22px !important; filter: drop-shadow(5px 6px 0 rgba(63,43,45,.22)); }
+.card + .card { margin-top: 24px !important; }
+
+/* ── 頂端標題列（各工具頁的 header） ─────────────── */
+header {
+  background: var(--teal) !important;
+  border-bottom: 3px solid var(--o) !important;
+  color: #fffdf2 !important;
+  position: relative;
+}
+header h1, header a, header span, header .acct { color: #fffdf2 !important; font-family: 'Cubic 11', monospace !important; }
+header h1 { font-size: 17px !important; font-weight: 400 !important; letter-spacing: .08em !important; text-shadow: 2px 2px 0 var(--o); }
+header .logo-dot {
+  width: 14px !important; height: 14px !important; background: var(--yellow) !important;
+  box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o) !important;
+}
+header a[href="/"]::before { content: '◀'; margin-right: 6px; color: var(--yellow); }
+header span { font-size: 12px !important; opacity: .95; }
+
+/* ── 按鈕 ─────────────────────────────────────── */
+button, .btn, .analyze-btn, .copy-btn, .sig-btn {
+  cursor: pointer;
+}
+.btn, .analyze-btn, .copy-btn, .sig-btn.primary {
+  background: var(--pink) !important;
+  color: #fff !important;
+  border: 0 !important;
+  box-shadow:
+    0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o),
+    inset 0 -4px 0 0 rgba(63,43,45,.22), inset 0 3px 0 0 rgba(255,255,255,.45) !important;
+  text-shadow: 2px 2px 0 rgba(63,43,45,.55);
+  font-weight: 400 !important;
+  margin: 3px;
+  transition: none !important;
+}
+.btn:hover, .analyze-btn:hover:not(:disabled), .copy-btn:hover { background: #f4a3c0 !important; transform: translateY(-2px); }
+.btn:active, .analyze-btn:active, .copy-btn:active { transform: translateY(3px); box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o) !important; }
+.btn:disabled, .analyze-btn:disabled { background: #d9cfc0 !important; color: #8a7d70 !important; text-shadow: none; transform: none; }
+.btn.ghost, .btn.secondary, .sig-btn:not(.primary) {
+  background: var(--panel) !important; color: var(--o) !important; text-shadow: none;
+}
+
+/* ── 輸入框 ───────────────────────────────────── */
+input[type=text], input[type=url], input[type=email], input[type=password], input[type=number], input:not([type]), select, textarea {
+  background: #fffdf2 !important;
+  color: var(--o) !important;
+  border: 0 !important;
+  box-shadow:
+    0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o),
+    inset 3px 3px 0 0 rgba(63,43,45,.10) !important;
+  margin: 3px;
+  outline: none !important;
+}
+input:focus, select:focus, textarea:focus {
+  box-shadow:
+    0 -3px 0 0 var(--pink), 0 3px 0 0 var(--pink), -3px 0 0 0 var(--pink), 3px 0 0 0 var(--pink),
+    inset 3px 3px 0 0 rgba(63,43,45,.10) !important;
+}
+::placeholder { color: #b5a28f !important; }
+label { color: var(--o) !important; }
+
+/* ── 表格 / 標籤 ──────────────────────────────── */
+table th { color: var(--muted) !important; border-bottom: 3px solid var(--o) !important; }
+table td { border-bottom: 2px dashed rgba(63,43,45,.25) !important; }
+.badge, .chip, .pill, .tag {
+  box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o);
+  border: 0 !important;
+}
+
+/* ── 勞報單頁：側欄、上傳區、簽名 ───────────────── */
+.sidebar { margin: 3px 0 !important; box-shadow: 3px 0 0 0 var(--o) !important; background: var(--panel) !important; }
+.upload-zone, .img-slot {
+  border: 0 !important;
+  background: #fffdf2 !important;
+  background-image:
+    linear-gradient(90deg, var(--o) 50%, transparent 50%),
+    linear-gradient(90deg, var(--o) 50%, transparent 50%),
+    linear-gradient(0deg, var(--o) 50%, transparent 50%),
+    linear-gradient(0deg, var(--o) 50%, transparent 50%) !important;
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y !important;
+  background-size: 12px 3px, 12px 3px, 3px 12px, 3px 12px !important;
+  background-position: 0 0, 0 100%, 0 0, 100% 0 !important;
+}
+.upload-zone:hover, .upload-zone.drag-over { background-color: var(--pink-l) !important; }
+.section-label { color: var(--o) !important; font-size: 13px !important; }
+.file-info { background: var(--teal-l) !important; border: 0 !important; box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o) !important; margin: 3px; }
+.save-badge { color: var(--muted) !important; }
+.main { background: transparent !important; }
+
+::-webkit-scrollbar { width: 14px; height: 14px; }
+::-webkit-scrollbar-track { background: #ffe9cc; border-left: 3px solid var(--o); }
+::-webkit-scrollbar-thumb { background: var(--pink); border: 3px solid var(--o); }
+
+/* ── 小動畫（用 steps() 保持像素感） ──────────────── */
+@keyframes px-blink { 50% { opacity: 0; } }
+@keyframes px-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes px-drift { from { transform: translateX(-140px); } to { transform: translateX(calc(100vw + 140px)); } }
+.px-blink { animation: px-blink 1s steps(1) infinite; }
+.px-bob { animation: px-bob 1.2s steps(2) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .px-blink, .px-bob { animation: none; }
+}
