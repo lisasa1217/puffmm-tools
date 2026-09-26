@@ -36,95 +36,78 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
   html.go .desk { display: none; }
   html, body { overflow-x: hidden; }
   body { min-height: 100vh; }
-  .desk { position: relative; min-height: 100vh; padding-bottom: 60px; }
+  .desk { position: relative; min-height: 100vh; padding-bottom: 50px; }
 
-  /* 飄動的像素雲 */
-  .cloud { position: absolute; left: 0; width: 120px; height: 40px; opacity: .95; animation: px-drift 60s steps(120) infinite; pointer-events: none; z-index: 0; }
-  .cloud.c1 { top: 96px;  animation-duration: 70s; }
-  .cloud.c2 { top: 330px; width: 84px; height: 28px; animation-duration: 95s; animation-delay: -40s; }
-  .cloud.c3 { top: 560px; width: 150px; height: 50px; animation-duration: 120s; animation-delay: -75s; }
+  /* 很淡的像素雲 */
+  .cloud { position: absolute; left: 0; width: 96px; height: 32px; opacity: .8; animation: px-drift 90s steps(160) infinite; pointer-events: none; z-index: 0; }
+  .cloud.c1 { top: 120px; }
+  .cloud.c2 { top: 420px; width: 70px; height: 24px; animation-duration: 130s; animation-delay: -60s; }
 
-  .wrap { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding: 0 22px; }
+  .wrap { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding: 0 18px; }
 
-  /* 頂端工作列 */
-  .taskbar { background: var(--teal); border-bottom: 3px solid var(--o); position: relative; z-index: 2; }
-  .taskbar .wrap { display: flex; align-items: center; gap: 12px; height: 52px; }
-  .taskbar .name { color: #fffdf2; font-size: 16px; letter-spacing: .1em; text-shadow: 2px 2px 0 var(--o); }
-  .wbtns { margin-left: auto; display: flex; gap: 8px; }
-  .wbtns b { width: 22px; height: 22px; background: #fffdf2; color: var(--o); font-size: 13px; display: flex; align-items: center; justify-content: center; font-weight: 400;
+  /* 頂端工作列：小熊 + 名稱 + 一句招呼 */
+  .taskbar { background: var(--teal); border-bottom: 2px solid var(--o); position: relative; z-index: 2; }
+  .taskbar .wrap { display: flex; align-items: center; gap: 10px; height: 46px; }
+  .taskbar [data-px] { width: 26px; height: 26px; }
+  .taskbar .name { font-size: 15px; letter-spacing: .08em; color: var(--o); }
+  .taskbar .hi { margin-left: 8px; font-size: 12px; color: var(--o); opacity: .8; }
+  .wbtns { margin-left: auto; display: flex; gap: 6px; }
+  .wbtns b { width: 18px; height: 18px; background: #fffdf2; color: var(--o); font-size: 11px; display: flex; align-items: center; justify-content: center; font-weight: 400; margin: 2px;
     box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); }
-  .wbtns b:last-child { background: var(--pink); color: #fff; }
-
-  /* 主角對話框 */
-  .dialog { display: flex; align-items: flex-end; gap: 22px; padding: 46px 0 34px; }
-  .npc { flex: 0 0 auto; width: 120px; height: 120px; background: var(--sky);
-    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); margin: 3px;
-    display: flex; align-items: center; justify-content: center;
-    background-image: linear-gradient(rgba(255,255,255,.7) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,.7) 2px, transparent 2px); background-size: 12px 12px; }
-  .npc [data-px] { width: 96px; height: 96px; }
-  .bubble { position: relative; flex: 1; background: #fffdf2; padding: 22px 26px; margin: 3px;
-    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); filter: drop-shadow(5px 6px 0 rgba(63,43,45,.2)); }
-  .bubble::before { content: ''; position: absolute; left: -15px; bottom: 26px; width: 12px; height: 12px; background: #fffdf2;
-    box-shadow: -3px 0 0 0 var(--o), 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o); }
-  .bubble h1 { font-size: 26px; font-weight: 400; line-height: 1.4; }
-  .bubble h1 .cur { color: var(--pink); }
-  .bubble p { margin-top: 8px; font-size: 14px; color: var(--muted); }
+  .wbtns b:last-child { background: var(--pink); }
 
   /* 分類頁籤 */
-  .tabs-row { display: flex; gap: 12px; margin: 0 0 28px; }
-  .tab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; font-size: 15px; background: #fffdf2; color: var(--o); border: 0; margin: 3px;
-    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o); }
-  .tab.on { background: var(--yellow); }
-  .tab em { font-style: normal; background: var(--o); color: #fffdf2; font-size: 12px; padding: 1px 7px; }
+  .tabs-row { display: flex; align-items: center; gap: 10px; padding: 18px 0 16px; }
+  .tab { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px; background: var(--yellow); color: var(--o); border: 0; margin: 2px;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); }
+  .tab [data-px] { width: 18px; height: 18px; }
+  .tab em { font-style: normal; background: var(--o); color: #fffdf2; font-size: 11px; padding: 0 6px; }
+  .tabs-row .hint { font-size: 12px; color: var(--muted); margin-left: 4px; }
 
-  .sec-title { display: flex; align-items: center; gap: 10px; font-size: 19px; margin-bottom: 22px; }
-
-  /* 應用程式視窗卡片 */
-  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 30px 26px; }
-  .app-win { display: flex; flex-direction: column; text-decoration: none; color: var(--o); background: var(--panel); margin: 3px;
-    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o);
-    filter: drop-shadow(6px 7px 0 rgba(63,43,45,.22)); transition: none; }
-  .app-win:hover { transform: translate(-3px, -3px); filter: drop-shadow(9px 10px 0 rgba(63,43,45,.22)); }
-  .app-win:active { transform: translate(3px, 3px); filter: drop-shadow(2px 3px 0 rgba(63,43,45,.22)); }
-  .app-win .tb { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; color: #fffdf2; font-size: 13px; border-bottom: 3px solid var(--o); text-shadow: 2px 2px 0 var(--o); }
+  /* 應用程式視窗：緊湊，一眼看到全部工具 */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)); gap: 16px 18px; }
+  .app-win { display: flex; flex-direction: column; text-decoration: none; color: var(--o); background: var(--panel); margin: 2px;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o);
+    filter: drop-shadow(3px 4px 0 rgba(106,81,83,.12)); }
+  .app-win:hover { transform: translate(-1px, -2px); filter: drop-shadow(4px 6px 0 rgba(106,81,83,.16)); }
+  .app-win:active { transform: translate(1px, 1px); filter: none; }
+  .app-win .tb { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; color: var(--o); font-size: 12px; border-bottom: 2px solid var(--o); }
   .app-win[data-c=teal] .tb   { background: var(--teal); }
   .app-win[data-c=pink] .tb   { background: var(--pink); }
   .app-win[data-c=orange] .tb { background: var(--orange); }
-  .app-win[data-c=grey] .tb   { background: #b9ada2; }
-  .app-win .tb .x { display: flex; gap: 5px; }
-  .app-win .tb .x i { width: 12px; height: 12px; background: #fffdf2; display: block; box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); margin: 2px; }
-  .app-win .bd { padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 12px; flex: 1;
-    background-image: linear-gradient(rgba(255,233,204,.9) 2px, transparent 2px), linear-gradient(90deg, rgba(255,233,204,.9) 2px, transparent 2px); background-size: 16px 16px; }
-  .slot { width: 84px; height: 84px; display: flex; align-items: center; justify-content: center; background: var(--sky); margin: 3px;
-    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o);
-    background-image: linear-gradient(rgba(255,255,255,.7) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,.7) 2px, transparent 2px); background-size: 12px 12px; }
-  .slot [data-px] { width: 64px; height: 64px; }
+  .app-win[data-c=grey] .tb   { background: #ddd3c8; }
+  .app-win .tb .x { display: flex; gap: 4px; }
+  .app-win .tb .x i { width: 9px; height: 9px; background: #fffdf2; display: block; margin: 2px; box-shadow: 0 -1px 0 0 var(--o), 0 1px 0 0 var(--o), -1px 0 0 0 var(--o), 1px 0 0 0 var(--o); }
+  .app-win .bd { padding: 12px 14px; display: grid; grid-template-columns: 56px 1fr; gap: 4px 14px; align-items: center; flex: 1; }
+  .slot { grid-row: 1 / span 2; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: var(--sky); margin: 2px;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o); }
+  .slot [data-px] { width: 32px; height: 32px; }
   .app-win:hover .slot [data-px] { animation: px-bob .6s steps(2) infinite; }
-  .app-win h3 { font-size: 18px; font-weight: 400; }
-  .app-win p { font-size: 13px; color: var(--muted); line-height: 1.75; flex: 1; }
-  .start { align-self: flex-start; display: inline-block; padding: 7px 16px; font-size: 14px; color: #fff; background: var(--pink); margin: 3px; text-shadow: 2px 2px 0 rgba(63,43,45,.6);
-    box-shadow: 0 -3px 0 0 var(--o), 0 3px 0 0 var(--o), -3px 0 0 0 var(--o), 3px 0 0 0 var(--o), inset 0 -4px 0 rgba(63,43,45,.22), inset 0 3px 0 rgba(255,255,255,.45); }
-  .app-win[data-c=teal] .start   { background: var(--teal); }
-  .app-win[data-c=orange] .start { background: var(--orange); }
+  .app-win h3 { font-size: 15px; font-weight: 400; align-self: end; }
+  .app-win p { font-size: 12px; color: var(--muted); line-height: 1.6; align-self: start;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .start { position: absolute; }
+  .go { grid-column: 2; justify-self: start; margin-top: 4px; font-size: 12px; padding: 1px 10px; background: var(--pink); margin-left: 2px;
+    box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o), inset 0 -2px 0 rgba(106,81,83,.12); }
+  .app-win[data-c=teal] .go   { background: var(--teal); }
+  .app-win[data-c=orange] .go { background: var(--orange); }
 
-  .app-win.soon { background: #f3ebe0; filter: none; box-shadow: 0 -3px 0 0 #b9ada2, 0 3px 0 0 #b9ada2, -3px 0 0 0 #b9ada2, 3px 0 0 0 #b9ada2; color: #9a8d80; }
+  .app-win.soon { background: #f7f2ea; filter: none; color: #b0a498; box-shadow: 0 -2px 0 0 #cfc4b8, 0 2px 0 0 #cfc4b8, -2px 0 0 0 #cfc4b8, 2px 0 0 0 #cfc4b8; }
   .app-win.soon:hover, .app-win.soon:active { transform: none; filter: none; }
-  .app-win.soon .tb { border-bottom-color: #b9ada2; text-shadow: none; }
-  .app-win.soon .bd { background-image: none; }
-  .app-win.soon .slot { background: #e6dccf; box-shadow: 0 -3px 0 0 #b9ada2, 0 3px 0 0 #b9ada2, -3px 0 0 0 #b9ada2, 3px 0 0 0 #b9ada2; background-image: none; opacity: .8; }
-  .app-win.soon p { color: #9a8d80; }
-  .app-win.soon .start { background: #d9cfc0; color: #9a8d80; text-shadow: none; box-shadow: 0 -3px 0 0 #b9ada2, 0 3px 0 0 #b9ada2, -3px 0 0 0 #b9ada2, 3px 0 0 0 #b9ada2; }
+  .app-win.soon .tb { border-bottom-color: #cfc4b8; color: #b0a498; }
+  .app-win.soon .slot { background: #ece4d9; box-shadow: 0 -2px 0 0 #cfc4b8, 0 2px 0 0 #cfc4b8, -2px 0 0 0 #cfc4b8, 2px 0 0 0 #cfc4b8; opacity: .8; }
+  .app-win.soon p { color: #b0a498; }
+  .app-win.soon .go { background: #ece4d9; box-shadow: 0 -2px 0 0 #cfc4b8, 0 2px 0 0 #cfc4b8, -2px 0 0 0 #cfc4b8, 2px 0 0 0 #cfc4b8; }
 
-  /* 底部狀態列 */
-  .status { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: #fffdf2; border-top: 3px solid var(--o); font-size: 12px; color: var(--muted); }
-  .status .wrap { display: flex; align-items: center; gap: 12px; height: 34px; }
+  .status { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: #fffdf4; border-top: 2px solid var(--o); font-size: 11px; color: var(--muted); }
+  .status .wrap { display: flex; align-items: center; gap: 10px; height: 26px; }
+  .status [data-px] { width: 16px; height: 16px; }
   .status .wrap span:last-child { margin-left: auto; }
 
   @media (max-width: 640px) {
-    .dialog { flex-direction: column; align-items: flex-start; padding-top: 32px; gap: 20px; }
-    .bubble::before { left: 40px; top: -15px; bottom: auto; box-shadow: -3px 0 0 0 var(--o), 0 -3px 0 0 var(--o), 3px 0 0 0 var(--o); }
-    .bubble h1 { font-size: 21px; }
-    .wrap { padding: 0 16px; }
+    .taskbar .hi { display: none; }
+    .wrap { padding: 0 14px; }
+    .tabs-row { padding-top: 14px; }
   }
 </style>
 <link rel="stylesheet" href="/pixel.css">
@@ -136,30 +119,21 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
 <div class="desk">
   <div class="cloud c1" data-px="cloud"></div>
   <div class="cloud c2" data-px="cloud"></div>
-  <div class="cloud c3" data-px="cloud"></div>
 
   <div class="taskbar">
     <div class="wrap">
-      <i data-px="bear" class="px-s"></i>
+      <i data-px="bear"></i>
       <span class="name">PUFF &amp; MOM 工具箱</span>
+      <span class="hi">嗨！今天要用哪個？</span>
       <div class="wbtns"><b>_</b><b>□</b><b>×</b></div>
     </div>
   </div>
 
   <div class="wrap">
-    <section class="dialog">
-      <div class="npc"><i data-px="bear" class="px-bob"></i></div>
-      <div class="bubble">
-        <h1>嗨！今天要用哪個工具？<span class="cur px-blink">▌</span></h1>
-        <p>點下面的視窗就能開始 ♥</p>
-      </div>
-    </section>
-
     <div class="tabs-row">
-      <button class="tab on"><i data-px="star" class="px-s"></i>工具 <em>3</em></button>
+      <button class="tab"><i data-px="star"></i>工具 <em>3</em></button>
+      <span class="hint">點視窗開始 ♥</span>
     </div>
-
-    <div class="sec-title"><i data-px="coin" class="px-s"></i>我的小工具</div>
 
     <main class="cards">
       <a class="app-win" data-c="teal" href="/labor-form">
@@ -167,8 +141,8 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
         <div class="bd">
           <div class="slot"><i data-px="clip"></i></div>
           <h3>勞報單填寫助手</h3>
-          <p>上傳廠商給的勞報單（PDF / Word / Excel），自動帶入姓名、身分證、存摺、簽名，填好直接下載或傳 LINE。</p>
-          <span class="start">START ▶</span>
+          <p>上傳 PDF / Word / Excel 勞報單，自動帶入個資，填好下載或傳 LINE</p>
+          <span class="go">START ▶</span>
         </div>
       </a>
 
@@ -177,8 +151,8 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
         <div class="bd">
           <div class="slot"><i data-px="link"></i></div>
           <h3>縮短網址產生器</h3>
-          <p>把長長的團購／表單連結變短，可以預覽、再複製，用完也能刪掉。</p>
-          <span class="start">START ▶</span>
+          <p>長連結變短，可預覽、再複製，用完也能刪掉</p>
+          <span class="go">START ▶</span>
         </div>
       </a>
 
@@ -187,8 +161,8 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
         <div class="bd">
           <div class="slot"><i data-px="gift"></i></div>
           <h3>IG 留言抽獎</h3>
-          <p>選一則貼文，依留言條件抽出得獎者，可單獨重抽。（目前是示範模式）</p>
-          <span class="start">START ▶</span>
+          <p>選一則貼文，依留言條件抽出得獎者，可單獨重抽</p>
+          <span class="go">START ▶</span>
         </div>
       </a>
 
@@ -197,15 +171,15 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
         <div class="bd">
           <div class="slot"><i data-px="soon"></i></div>
           <h3>之後想加什麼？</h3>
-          <p>還有空位，需要什麼小工具跟 Claude 說一聲就好。</p>
-          <span class="start">LOCKED</span>
+          <p>還有空位，需要什麼跟 Claude 說一聲</p>
+          <span class="go">LOCKED</span>
         </div>
       </div>
     </main>
   </div>
 </div>
 
-<div class="status"><div class="wrap"><i data-px="heart" class="px-s"></i><span>READY</span><span>v2.0 · puff&amp;mom toolbox</span></div></div>
+<div class="status"><div class="wrap"><i data-px="heart"></i><span>READY</span><span>v2.1 · puff&amp;mom toolbox</span></div></div>
 </div>
 
 <!--
