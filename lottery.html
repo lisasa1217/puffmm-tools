@@ -254,6 +254,16 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
     .posts { grid-template-columns: repeat(2, 1fr); gap:10px; }
     .stats b { font-size:18px; }
   }
+
+  /* 手機：拉霸機＋拉桿要整組放得進畫面，左右留白（不要滿版） */
+  @media (max-width: 560px) {
+    .slot-wrap { max-width:100%; padding: 0 2px; }
+    .machine { min-width:0; width: min(440px, calc(100vw - 32px - 56px)) !important; padding: 14px 12px 18px; }
+    body.rec .wrap { padding: 24px 16px; }
+    body.rec .machine { width: min(520px, calc(100vw - 32px - 56px)) !important; }
+    .lever { transform: scale(.85); transform-origin: left center; margin-left: 2px; }
+    .rec-exit { right: 16px; }
+  }
 </style>
 <link rel="stylesheet" href="/pixel.css">
 <script src="/pixel.js"></script>
