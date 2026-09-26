@@ -274,8 +274,7 @@ alter table short_links add column if not exists note text;</pre>
     }
     if (res.error) { $('listWrap').innerHTML = '<div class="empty">讀取失敗：' + esc(res.error.message) + '</div>'; return; }
     ITEMS = res.data || [];
-    if (!HAS_NOTE) $('policyNotice').style.display = 'block';
-    renderList();
+    renderList();   // 提醒框不在載入時顯示，只有刪除失敗/備註存不進去才會跳出來
   }
 
   function renderList() {
