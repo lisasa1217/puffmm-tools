@@ -127,6 +127,7 @@ module.exports = async (req, res) => {
         .filter(p => p.id !== exclude);
       // 每個人：在幾篇一般貼文留過言、參加過幾次抽獎
       const users = {};
+      const errors = [];
       let i = 0;
       async function worker() {
         while (i < posts.length) {
@@ -135,7 +136,7 @@ module.exports = async (req, res) => {
           let names;
           try {
             names = new Set((await igAll(`/${p.id}/comments?fields=id,username&limit=50`, token, 5000)).map(c => c.username).filter(Boolean));
-          } catch (e) { continue; }
+          } catch (e) { errors.push(e.message); continue; }
           for (const u of names) {
             users[u] = users[u] || { normal: 0, giveaway: 0 };
             users[u][giveaway ? 'giveaway' : 'normal']++;
@@ -147,6 +148,7 @@ module.exports = async (req, res) => {
         scanned: posts.length,
         giveawayPosts: posts.filter(p => GIVEAWAY_RE.test(p.caption || '')).length,
         users,
+        errors: [...new Set(errors)].slice(0, 3),
       });
     }
 
