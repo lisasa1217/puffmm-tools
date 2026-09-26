@@ -155,6 +155,7 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
   /* 拉霸機 */
   .prize-setup { display:grid; grid-template-columns: 1fr auto; gap:12px; align-items:end; margin-bottom:18px; }
   .prize-setup .photo-btn { display:flex; gap:8px; align-items:center; }
+  .draw-setup { display:grid; grid-template-columns: auto 1fr; gap:14px; align-items:end; margin-bottom:16px; }
   .rec-tip { font-size:12px; color: var(--muted); margin-top:8px; line-height:1.5; }
 
   .slot-wrap { display:flex; justify-content:center; align-items:center; gap:0; }
@@ -167,6 +168,16 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
   .m-lights i:nth-child(odd) { animation-delay: .45s; }
   .machine.spinning .m-lights i { animation-duration: .25s; }
   @keyframes blink { 50% { background:#ffd96b; } }
+  .m-icons { display:flex; justify-content:center; align-items:flex-end; gap:8px; margin: 0 0 10px; }
+  .m-icons .tile { background:#fffdf4; padding:6px; box-shadow: 0 0 0 3px #6a5153; line-height:0; }
+  .m-icons .tile svg { width:36px; height:36px; display:block; }
+  .m-icons .tile.big svg { width:52px; height:52px; }
+  .machine.spinning .m-icons .tile { animation: bob .3s steps(2) infinite; }
+  .m-icons .tile:nth-child(even) { animation-delay: .15s !important; }
+  @keyframes bob { 50% { transform: translateY(-3px); } }
+  .reels { display:flex; flex-direction:column; gap:10px; }
+  .reel-win.one { height:72px; }
+  .reel-win.one .payline { top:0; }
   .m-title { background:#6a5153; color:#fff3c4; font-size:18px; letter-spacing:.12em; padding:8px 6px; }
   .m-prize { background:#fffdf4; margin:12px 0; padding:12px; display:flex; gap:12px; align-items:center; text-align:left;
     box-shadow: 0 -3px 0 0 #6a5153, 0 3px 0 0 #6a5153, -3px 0 0 0 #6a5153, 3px 0 0 0 #6a5153; }
@@ -380,6 +391,19 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
             <button class="btn small ghost hidden" id="prizePhotoDel" onclick="setPrizeImg('')">移除</button>
           </div>
         </div>
+        <div class="draw-setup">
+          <div>
+            <label class="l">抽出人數</label>
+            <div class="inline"><input type="number" id="sWinners" min="1" max="20" value="1"> <span style="font-size:13px">位</span></div>
+          </div>
+          <div>
+            <label class="l">抽法</label>
+            <div class="seg" id="sMode">
+              <button data-v="one" class="on">一位一位拉</button>
+              <button data-v="all">一次全部抽</button>
+            </div>
+          </div>
+        </div>
         <button class="btn" onclick="enterRec()">🎬 進入錄影模式</button>
         <div class="rec-tip">錄影模式只會留下拉霸機，方便錄成限動或 Reels。先開始螢幕錄影（Mac 按 ⌘⇧5、手機用控制中心），再按「拉！」。</div>
       </div>
@@ -387,6 +411,7 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
       <div class="slot-wrap">
         <div class="machine" id="machine">
           <div class="m-lights"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="m-icons"><span class="tile" data-ic="bell"></span><span class="tile" data-ic="cherry"></span><span class="tile big" data-ic="seven"></span><span class="tile" data-ic="cherry"></span><span class="tile" data-ic="bell"></span></div>
           <div class="m-title">PUFF &amp; MOM 抽獎機</div>
           <div class="m-prize">
             <img id="mPrizeImg" class="hidden" alt="">
@@ -396,7 +421,7 @@ API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示
               <div class="cnt" id="mPrizeCnt"></div>
             </div>
           </div>
-          <div class="reel-win" id="reelWin"><div class="reel" id="reel"></div><div class="payline"></div></div>
+          <div class="reels" id="reels"></div>
           <div class="m-meta" id="stageMeta"></div>
           <div class="m-chips" id="mChips"></div>
           <button class="btn m-btn" id="drawBtn" onclick="startDraw()">拉！</button>
@@ -779,24 +804,58 @@ function enterRec() { document.body.classList.add('rec'); window.scrollTo(0, 0);
 function exitRec() { document.body.classList.remove('rec'); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') exitRec(); });
 
-function idleReel() {
-  const reel = $('reel');
-  reel.style.transition = 'none'; reel.style.transform = 'translateY(0)';
-  reel.innerHTML = '';
+// 經典拉霸圖示（像素）
+const IC_PAL = { o:'#6a5153', r:'#ec7f84', R:'#d9545b', W:'#ffffff', g:'#6fae55', y:'#ffd96b', Y:'#fff3c4' };
+const ICONS = {
+  cherry: ["........oo..",".......ogo..","......ogoo..",".....og.og..","....og...og.","...og.....o.",".oooo...ooo.","orrrro.orrro","orWrro.oWrro","orrrro.orrro","oRRRRo.oRRRo",".oooo...ooo."],
+  bell:   [".....oo.....","....oyyo....","...oyYyyo...","..oyYyyyyo..","..oyYyyyyo..","..oyyyyyyo..",".oyyyyyyyyo.","oyyyyyyyyyyo","oooooooooooo",".....oo.....","....oyyo....",".....oo....."],
+  seven:  ["............",".oooooooooo.",".orrrrrrrro.",".orWrrrrrro.",".oooooorrro.",".....orrro..","....orrro...","....orro....","...orrro....","...orro.....","...oooo.....","............"],
+};
+function iconSvg(name) {
+  const rows = ICONS[name]; let r = '';
+  rows.forEach((row, y) => [...row].forEach((ch, x) => { if (ch !== '.') r += `<rect x="${x}" y="${y}" width="1" height="1" fill="${IC_PAL[ch]}"/>`; }));
+  return `<svg viewBox="0 0 12 12" shape-rendering="crispEdges">${r}</svg>`;
+}
+document.querySelectorAll('[data-ic]').forEach(el => el.innerHTML = iconSvg(el.dataset.ic));
+
+function drawSettings() {
+  return { winners: Math.max(1, Math.min(20, parseInt($('sWinners').value) || 1)), mode: segVal('sMode') };
+}
+// 抽獎頁的人數跟規則頁的「抽出人數」是同一個值
+$('sWinners').addEventListener('input', () => { $('rWinners').value = $('sWinners').value; recompute(); buildReels(); });
+segBind('sMode', () => { store('lottery_draw_mode', segVal('sMode')); buildReels(); });
+
+// 轉輪：一位一位拉 → 一個大轉輪（看得到上下兩格）；一次全部抽 → 幾位就幾條窄轉輪
+function buildReels() {
+  if (S.draw) return;
+  const { winners, mode } = drawSettings();
+  const n = mode === 'all' ? winners : 1;
   const names = S.entries.ok.map(e => e.user);
-  const pick = names.length > 3 ? [0, 1, 2].map(() => names[rand(names.length)]) : names;
-  pick.forEach(u => reel.append(reelItem(u)));
+  $('reels').innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const win = document.createElement('div');
+    win.className = 'reel-win' + (n > 1 ? ' one' : '');
+    const reel = document.createElement('div'); reel.className = 'reel';
+    const rows = n > 1 ? 1 : 3;
+    for (let k = 0; k < rows; k++) reel.append(reelItem(names[rand(names.length)]));
+    const pl = document.createElement('div'); pl.className = 'payline';
+    win.append(reel, pl);
+    $('reels').append(win);
+  }
 }
 
 function prepareStage() {
   const tickets = S.entries.ok.reduce((a, e) => a + e.tickets, 0);
   loadPrize();
+  $('sWinners').value = readRules().winners;
+  segSet('sMode', load('lottery_draw_mode') || 'one');
   $('stageMeta').textContent = `符合資格 ${S.entries.ok.length} 人・共 ${tickets} 次機會`;
   if (!S.draw) {
     $('mChips').innerHTML = '';
     $('drawBtn').classList.remove('hidden');
     $('resultWrap').classList.add('hidden');
-    idleReel();
+    buildReels();
+    updatePullBtn();
   }
 }
 
@@ -820,43 +879,74 @@ function drawOrder(entries, count) {
   return out;
 }
 
+function updatePullBtn() {
+  const { winners, mode } = drawSettings();
+  const done = S.draw ? S.draw.shown : 0;
+  $('drawBtn').textContent = mode === 'one' && winners > 1 ? `拉！（第 ${done + 1} / ${winners} 位）` : '拉！';
+}
+
 async function startDraw() {
-  const r = readRules();
-  const order = drawOrder(S.entries.ok, r.winners);
-  S.draw = { at: new Date(), rules: r, slots: order.map(e => ({ e, follow: false, story: false })), replaced: [] };
-  $('drawBtn').classList.add('hidden');
-  $('mChips').innerHTML = '';
-  const names = S.entries.ok.map(e => e.user);
-  for (const e of order) {
-    await spin(names, e.user);
-    addChip(e.user);
-    await sleep(900);
-  }
-  $('stageMeta').textContent = `🎉 恭喜！抽獎時間 ${S.draw.at.toLocaleString('zh-TW')}`;
-  renderWinners();
-  $('resultWrap').classList.remove('hidden');
+  if (S.busy) return;
+  S.busy = true;
+  try {
+    const { winners, mode } = drawSettings();
+    if (!S.draw) {
+      const r = { ...readRules(), winners };
+      const order = drawOrder(S.entries.ok, winners);
+      S.draw = { at: new Date(), rules: r, slots: order.map(e => ({ e, follow: false, story: false })), replaced: [], shown: 0 };
+      $('mChips').innerHTML = '';
+    }
+    const names = S.entries.ok.map(e => e.user);
+    const wins = [...$('reels').children];
+    $('drawBtn').disabled = true;
+    if (mode === 'all') {
+      // 全部轉輪一起轉，由上往下依序停
+      await Promise.all(S.draw.slots.map((x, i) => spin(wins[i], names, x.e.user, 3800 + i * 700)));
+      S.draw.slots.forEach(x => addChip(x.e.user));
+      S.draw.shown = S.draw.slots.length;
+    } else {
+      const x = S.draw.slots[S.draw.shown];
+      await spin(wins[0], names, x.e.user, 4200);
+      addChip(x.e.user);
+      S.draw.shown++;
+    }
+    $('drawBtn').disabled = false;
+    if (S.draw.shown < S.draw.slots.length) { updatePullBtn(); return; }
+    $('drawBtn').classList.add('hidden');
+    $('stageMeta').textContent = `🎉 恭喜！抽獎時間 ${S.draw.at.toLocaleString('zh-TW')}`;
+    renderWinners();
+    $('resultWrap').classList.remove('hidden');
+  } finally { S.busy = false; }
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// 拉霸：排一長串隨機帳號，最後停在得獎者（在中間那格）
-async function spin(names, final) {
-  const lever = $('lever'), m = $('machine'), win = $('reelWin'), reel = $('reel');
+// 拉霸：排一長串隨機帳號，最後停在得獎者（在中獎線那格）
+async function spin(win, names, final, dur) {
+  const lever = $('lever'), m = $('machine'), reel = win.querySelector('.reel');
+  const single = win.classList.contains('one');
   lever.classList.add('pulled'); setTimeout(() => lever.classList.remove('pulled'), 450);
   m.classList.add('spinning'); win.classList.remove('win-flash');
   const N = 46;
   const list = Array.from({ length: N }, () => names[rand(names.length)]);
-  list[N - 2] = final;
+  const stop = single ? N - 1 : N - 2;   // 單格轉輪停在最後一格，大轉輪停在中間
+  list[stop] = final;
   reel.style.transition = 'none'; reel.style.transform = 'translateY(0)';
   reel.innerHTML = '';
   list.forEach(u => reel.append(reelItem(u)));
   reel.offsetHeight; // 讓瀏覽器先排版
   await sleep(250);
-  const dur = 4200;
   reel.style.transition = `transform ${dur}ms cubic-bezier(.12,.72,.18,1.02)`;
-  reel.style.transform = `translateY(${-(N - 3) * ITEM_H}px)`;
+  reel.style.transform = `translateY(${-(single ? N - 1 : N - 3) * ITEM_H}px)`;
   await sleep(dur + 80);
-  m.classList.remove('spinning'); win.classList.add('win-flash');
+  win.classList.add('win-flash');
+  if (!m.querySelector('.reel-win:not(.win-flash)')) m.classList.remove('spinning');
   confetti();
+}
+function buildReelsForRedraw() {
+  const d = S.draw; S.draw = null;
+  const keep = $('sMode').querySelector('.on').dataset.v;
+  segSet('sMode', 'one'); buildReels(); segSet('sMode', keep);
+  S.draw = d;
 }
 function addChip(u) {
   const d = document.createElement('div'); d.className = 'm-chip';
@@ -890,7 +980,8 @@ async function redrawOne(i) {
   S.draw.slots[i] = { e, follow: false, story: false };
   window.scrollTo({ top: 0, behavior: 'smooth' });
   $('stageMeta').textContent = `重抽第 ${i + 1} 位（換掉 @${old.user}）`;
-  await spin(pool.map(x => x.user), e.user);
+  buildReelsForRedraw();
+  await spin($('reels').children[0], pool.map(x => x.user), e.user, 4200);
   $('mChips').innerHTML = '';
   S.draw.slots.forEach(x => addChip(x.e.user));
   $('stageMeta').textContent = `🎉 恭喜！重抽時間 ${new Date().toLocaleString('zh-TW')}`;
