@@ -1,15 +1,39 @@
 {
   "functions": {
-    "api/ig.js": { "maxDuration": 60 }
+    "api/ig.js": {
+      "maxDuration": 60
+    }
   },
   "crons": [
-    { "path": "/api/ig?action=refresh", "schedule": "0 3 * * 1" }
+    {
+      "path": "/api/ig?action=refresh",
+      "schedule": "0 3 * * 1"
+    }
   ],
   "routes": [
-    { "src": "^/api/(.*)$", "dest": "/api/$1" },
-    { "src": "^/labor-form/?$", "dest": "/labor-form.html" },
-    { "src": "^/shorturl/?$", "dest": "/shorturl.html" },
-    { "src": "^/lottery/?$", "dest": "/lottery.html" },
-    { "src": "^/(.*)$", "dest": "/index.html" }
+    {
+      "src": "^/api/(.*)$",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "^/labor-form/?$",
+      "dest": "/labor-form.html"
+    },
+    {
+      "src": "^/shorturl/?$",
+      "dest": "/shorturl.html"
+    },
+    {
+      "src": "^/lottery/?$",
+      "dest": "/lottery.html"
+    },
+    {
+      "src": "^/privacy/?$",
+      "dest": "/privacy.html"
+    },
+    {
+      "src": "^/(.*)$",
+      "dest": "/index.html"
+    }
   ]
 }
