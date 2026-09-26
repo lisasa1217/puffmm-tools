@@ -3,7 +3,7 @@
   泡芙與媽 工具箱 — 首頁（給 Claude 讀的部署說明）
 ==========================================================
 這是「工作工具系統」的入口首頁，跟 puffmm-tools 這個 repo 下的
-其他 .html 檔案（labor-form.html、shorturl.html）是同一個 Vercel
+其他 .html 檔案（labor-form.html、shorturl.html、lottery.html）是同一個 Vercel
 專案的不同頁面。網址靠 vercel.json 的 legacy "routes" 設定，
 讓 /labor-form、/shorturl 對應到 labor-form.html / shorturl.html，
 其他任何路徑（短碼）都 fallback 回這個 index.html。
@@ -234,7 +234,7 @@
   </div>
 
   <div class="cat-bar">
-    <button class="cat-tab active">🛠️ 工具 <span class="count">2</span></button>
+    <button class="cat-tab active">🛠️ 工具 <span class="count">3</span></button>
   </div>
 
   <main>
@@ -262,6 +262,15 @@
         </div>
       </a>
 
+      <a class="card" href="/lottery">
+        <div class="icon g1">🎁</div>
+        <h3>IG 留言抽獎</h3>
+        <p>選一篇抽獎貼文，設定關鍵字、tag 人數等規則，自動篩掉不符資格和疑似抽獎帳，公平抽出得獎者。</p>
+        <div class="go">開啟工具
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </div>
+      </a>
+
       <div class="card soon">
         <div class="icon">✨</div>
         <h3>之後想加什麼？</h3>
@@ -284,7 +293,7 @@
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rb2Nsd3BmdWd0YWVwd3BnbndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MjI2ODMsImV4cCI6MjEwNTE5ODY4M30.u94y7QHG7MalAghzF4lp40X9IIuHgMxoMncg1Zhx32w';
 
   const path = location.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
-  const KNOWN_PAGES = ['', 'labor-form', 'shorturl', 'index'];
+  const KNOWN_PAGES = ['', 'labor-form', 'shorturl', 'lottery', 'index'];
   if (KNOWN_PAGES.includes(path)) return; // normal hub page, do nothing
 
   document.getElementById('hubRoot').innerHTML = `

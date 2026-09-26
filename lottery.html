@@ -1,0 +1,819 @@
+<!--
+==========================================================
+  IG 留言抽獎 — 給 Claude 讀的說明
+==========================================================
+資料來源：同專案的 api/ig.js（Vercel function，token 只在伺服器端）。
+API 還沒設定好（沒有 IG_TOKEN）或網址帶 ?demo 時，自動進「示範模式」用假資料。
+
+規則邏輯全部在前端（下面 <script> 的 computeEntries）：
+  - 只看第一層留言，貼文主人自己的留言不算
+  - 關鍵字（任一符合）、至少 tag N 位、截止時間、排除名單
+  - 「重複 tag 不算」：同一人後面的留言再 tag 已經 tag 過的人，不算新的
+  - 每人機會：只算一次 / 每則符合的留言各一次（可設上限）
+  - 可疑抽獎帳：用 history（她最近 40 篇貼文誰留過言）判斷
+      只在抽獎文出現 → 疑似抽獎帳；一般貼文也常留言 → 老粉
+    加上帳號名稱規則（lucky/giveaway/一長串數字）
+追蹤、分享限動 IG API 查不到 → 抽完在得獎卡片上手動勾。
+==========================================================
+-->
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IG 留言抽獎</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #fffae0;
+    --surface: #ffffff;
+    --surface2: #fff5c8;
+    --border: #f0d96e;
+    --accent: #1e5929;
+    --accent2: #fbcd2c;
+    --text: #1a2e10;
+    --muted: #7a8c3a;
+    --danger: #e05555;
+    --warn-bg: #ffe9d6;
+    --warn: #b4540a;
+    --ok-bg: #e2f2e4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  button { font-family: inherit; }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 18px 32px;
+    display: flex; align-items: center; gap: 14px;
+    background: var(--surface);
+  }
+  header a.home { display:flex; align-items:center; gap:14px; text-decoration:none; color:inherit; }
+  .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(30,89,41,0.4); }
+  header h1 { font-size: 16px; font-weight: 500; letter-spacing: 0.08em; }
+  header .acct { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; margin-left: auto; }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  .notice {
+    background:#fff3a8; border:1px solid var(--accent2); border-radius:12px; padding:12px 16px;
+    font-size:13px; color:#5a4a00; margin-bottom:20px; line-height:1.6;
+  }
+
+  .steps { display:flex; gap:8px; margin-bottom:20px; flex-wrap: wrap; }
+  .step {
+    padding:7px 14px; border-radius:999px; font-size:13px; font-weight:700;
+    background: var(--surface); color: var(--muted); border:1px solid var(--border);
+  }
+  .step.on { background: var(--accent); color: var(--accent2); border-color: var(--accent); }
+  .step.done { cursor:pointer; color: var(--accent); }
+
+  .card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 16px; padding: 22px; }
+  .card + .card { margin-top: 16px; }
+  .card h2 { font-size: 16px; font-weight: 800; margin-bottom: 4px; }
+  .card .sub { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; line-height:1.5; }
+
+  /* 選貼文 */
+  .posts { display:grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap:14px; }
+  .post {
+    border:1.5px solid var(--border); border-radius:14px; overflow:hidden; cursor:pointer;
+    background: var(--surface); text-align:left; padding:0; display:flex; flex-direction:column;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .post:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(30,89,41,0.12); }
+  .post .thumb { aspect-ratio: 1; background: var(--surface2) center/cover no-repeat; position:relative; }
+  .post .tag { position:absolute; top:8px; left:8px; background: var(--accent2); color: var(--text); font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; }
+  .post .meta { padding:10px 12px 12px; }
+  .post .date { font-size:11px; color: var(--muted); font-family:'DM Mono',monospace; }
+  .post .cap { font-size:12.5px; line-height:1.45; margin-top:4px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height: 36px; }
+  .post .cc { font-size:12px; font-weight:700; color: var(--accent); margin-top:6px; }
+  .filter-row { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .chip {
+    padding:6px 12px; border-radius:999px; border:1px solid var(--border); background: var(--surface);
+    font-size:12.5px; font-weight:700; color: var(--muted); cursor:pointer;
+  }
+  .chip.on { background: var(--surface2); color: var(--text); border-color: var(--accent2); }
+
+  /* 規則 + 名單 */
+  .grid2 { display:grid; grid-template-columns: 340px 1fr; gap:16px; align-items:start; }
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  label.l { display:block; font-size:12.5px; font-weight:700; color: var(--muted); margin-bottom:6px; }
+  input[type=text], input[type=number], input[type=datetime-local], textarea, select {
+    width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:10px;
+    font-size:14px; font-family:inherit; background: var(--surface2); color: var(--text); outline:none;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  .hint { font-size:11.5px; color: var(--muted); margin-top:5px; line-height:1.5; }
+  .inline { display:flex; gap:8px; align-items:center; }
+  .inline input[type=number] { width: 80px; }
+  .check { display:flex; gap:8px; align-items:flex-start; font-size:13.5px; cursor:pointer; line-height:1.45; }
+  .check input { margin-top: 3px; accent-color: var(--accent); width:16px; height:16px; flex-shrink:0; }
+  .seg { display:flex; background: var(--surface2); border:1.5px solid var(--border); border-radius:10px; padding:3px; gap:3px; }
+  .seg button { flex:1; border:none; background:transparent; padding:8px 6px; border-radius:7px; font-size:12.5px; font-weight:700; color: var(--muted); cursor:pointer; }
+  .seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+  .stats { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:14px; }
+  .stat { background: var(--surface2); border-radius:12px; padding:12px 14px; }
+  .stat b { display:block; font-size:22px; font-weight:800; font-family:'DM Mono',monospace; }
+  .stat span { font-size:12px; color: var(--muted); font-weight:700; }
+
+  .tabs { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+  .list { max-height: 520px; overflow:auto; border-top:1px solid var(--border); }
+  .row { display:flex; gap:10px; padding:10px 2px; border-bottom:1px solid var(--border); align-items:flex-start; }
+  .row .who { min-width: 0; flex:1; }
+  .row .name { font-weight:700; font-size:13.5px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .row .name a { text-decoration:none; }
+  .row .name a:hover { text-decoration:underline; }
+  .row .txt { font-size:12.5px; color:#4a5a30; margin-top:3px; word-break: break-word; line-height:1.45; }
+  .row .why { font-size:12px; color: var(--danger); margin-top:3px; }
+  .row .tix { font-family:'DM Mono',monospace; font-size:12px; color: var(--muted); white-space:nowrap; padding-top:2px; }
+  .badge { font-size:11px; font-weight:700; padding:1px 8px; border-radius:999px; white-space:nowrap; }
+  .badge.sus { background: var(--warn-bg); color: var(--warn); }
+  .badge.fan { background: var(--ok-bg); color: var(--accent); }
+  .badge.new { background: #eef0f3; color:#5b6470; }
+  .empty { font-size:13px; color: var(--muted); padding:18px 0; text-align:center; }
+
+  .btn {
+    width:100%; padding:14px; background: var(--accent); color: var(--accent2);
+    border:none; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer; letter-spacing:0.03em;
+  }
+  .btn:hover { background:#174d22; }
+  .btn:disabled { opacity:0.45; cursor:not-allowed; }
+  .btn.ghost { background: var(--surface); color: var(--accent); border:1.5px solid var(--accent); }
+  .btn.small { width:auto; padding:8px 14px; font-size:13px; border-radius:9px; }
+  .err { font-size:12.5px; color: var(--danger); margin-top:10px; }
+
+  .progress { font-size:12.5px; color: var(--muted); display:flex; gap:8px; align-items:center; }
+  .spin { width:14px; height:14px; border:2px solid var(--border); border-top-color: var(--accent); border-radius:50%; animation: sp 0.8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  /* 抽獎舞台 */
+  .stage {
+    background: linear-gradient(160deg, var(--accent) 0%, #14401d 100%);
+    border-radius:20px; color:#fff; padding:34px 24px; text-align:center; position:relative; overflow:hidden;
+  }
+  .stage::before { content:''; position:absolute; width:240px; height:240px; border-radius:50%; background: var(--accent2); opacity:.13; top:-110px; right:-50px; }
+  .stage .title { font-size:13px; letter-spacing:.12em; color: rgba(255,255,255,.75); font-weight:700; }
+  .stage .post-cap { font-size:14px; margin-top:6px; color: rgba(255,255,255,.9); }
+  .roller {
+    font-family:'DM Mono', monospace; font-size: clamp(24px, 6vw, 40px); font-weight:500;
+    margin: 26px 0 18px; min-height: 56px; color: var(--accent2); word-break: break-all;
+  }
+  .stage .meta { font-size:12px; color: rgba(255,255,255,.65); font-family:'DM Mono',monospace; line-height:1.7; }
+  .stage .btn { background: var(--accent2); color: var(--text); max-width: 320px; margin: 18px auto 0; display:block; }
+  .stage .btn:hover { background:#ffd84d; }
+
+  .winners { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:14px; margin-top:16px; }
+  .win { background: var(--surface); border:1.5px solid var(--border); border-radius:16px; padding:16px; }
+  .win.bad { opacity:.5; }
+  .win .rank { font-size:11.5px; font-weight:800; color: var(--muted); letter-spacing:.06em; }
+  .win .uname { font-size:18px; font-weight:800; margin:4px 0 6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .win .uname a { text-decoration:none; }
+  .win .uname a:hover { text-decoration: underline; }
+  .win .txt { font-size:12.5px; color:#4a5a30; background: var(--surface2); border-radius:10px; padding:8px 10px; margin-bottom:10px; word-break:break-word; }
+  .win .checks { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+  .win .acts { display:flex; gap:8px; flex-wrap:wrap; }
+  .win.backup { border-style: dashed; }
+
+  .announce { width:100%; min-height:120px; font-size:14px; line-height:1.6; }
+  .row-btns { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+
+  .pass-box { max-width: 360px; margin: 60px auto; }
+
+  .hidden { display:none !important; }
+
+  @media (max-width: 800px) {
+    .grid2 { grid-template-columns: 1fr; }
+    header { padding: 16px 16px; }
+    .wrap { padding: 20px 16px 60px; }
+    .posts { grid-template-columns: repeat(2, 1fr); gap:10px; }
+    .stats b { font-size:18px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="home" href="/" title="回工具首頁">
+    <div class="logo-dot"></div>
+    <h1>IG 留言抽獎</h1>
+  </a>
+  <span class="acct" id="acct"></span>
+</header>
+
+<div class="wrap">
+
+  <div id="passBox" class="card pass-box hidden">
+    <h2>請輸入通關密碼</h2>
+    <div class="sub">輸入一次後這台裝置會記住</div>
+    <div class="field"><input type="text" id="passInput" placeholder="密碼"></div>
+    <button class="btn" onclick="submitPass()">進入</button>
+    <div class="err" id="passErr"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div id="demoNotice" class="notice hidden">
+      🧪 <b>示範模式</b>：IG 還沒連上，下面是假資料，可以先試操作流程。連上 IG 後會自動換成你真正的貼文。
+    </div>
+
+    <div class="steps">
+      <div class="step" id="st1" onclick="goStep(1)">① 選貼文</div>
+      <div class="step" id="st2" onclick="goStep(2)">② 設定規則</div>
+      <div class="step" id="st3" onclick="goStep(3)">③ 抽獎</div>
+    </div>
+
+    <!-- ① 選貼文 -->
+    <section id="view1">
+      <div class="card">
+        <h2>要抽哪一篇？</h2>
+        <div class="sub">有寫到抽獎、送出、tag 朋友的貼文會標上「抽獎文」</div>
+        <div class="filter-row">
+          <button class="chip on" data-f="give" onclick="setPostFilter('give')">只看抽獎文</button>
+          <button class="chip" data-f="all" onclick="setPostFilter('all')">全部貼文</button>
+        </div>
+        <div id="posts" class="posts"></div>
+        <div id="postsMsg" class="empty hidden"></div>
+      </div>
+    </section>
+
+    <!-- ② 規則 + 名單 -->
+    <section id="view2" class="hidden">
+      <div class="grid2">
+        <div class="card">
+          <h2>抽獎規則</h2>
+          <div class="sub" id="ruleFor"></div>
+
+          <div class="field">
+            <label class="l">留言要包含的字（選填）</label>
+            <input type="text" id="rKeywords" placeholder="例如：想要, 好想要">
+            <div class="hint">多個用逗號隔開，符合任一個就算。空白＝隨意留言都算</div>
+          </div>
+
+          <div class="field">
+            <label class="l">至少要 tag 幾位朋友</label>
+            <div class="inline"><input type="number" id="rTags" min="0" max="10" value="1"> <span style="font-size:13px">位（0＝不用 tag）</span></div>
+          </div>
+
+          <div class="field">
+            <label class="check"><input type="checkbox" id="rNoRepeatTag" checked> 重複 tag 同一個人不算</label>
+            <div class="hint">同一人換一則留言、又 tag 之前 tag 過的朋友，那則不算數</div>
+          </div>
+
+          <div class="field">
+            <label class="l">每人抽獎機會</label>
+            <div class="seg" id="rMode">
+              <button data-v="once" class="on">只算一次</button>
+              <button data-v="each">每則留言都算</button>
+            </div>
+            <div class="inline" id="rCapWrap" style="margin-top:8px">
+              <span style="font-size:13px">每人最多</span><input type="number" id="rCap" min="1" value="3"><span style="font-size:13px">次（0＝不限）</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="l">留言截止時間（選填）</label>
+            <input type="datetime-local" id="rDeadline">
+          </div>
+
+          <div class="field">
+            <label class="l">疑似抽獎帳</label>
+            <div class="seg" id="rSus">
+              <button data-v="mark" class="on">只標記</button>
+              <button data-v="exclude">直接排除</button>
+            </div>
+            <div class="hint" id="susHint">正在查你最近的貼文，看每個人平常有沒有在留言…</div>
+          </div>
+
+          <div class="field">
+            <label class="l">排除名單（選填）</label>
+            <textarea id="rExclude" placeholder="一行一個帳號，例如家人、合作廠商"></textarea>
+          </div>
+
+          <div class="field">
+            <label class="l">抽出人數</label>
+            <div class="inline">
+              <span style="font-size:13px">正取</span><input type="number" id="rWinners" min="1" value="1">
+              <span style="font-size:13px">備取</span><input type="number" id="rBackups" min="0" value="3">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="stats">
+            <div class="stat"><b id="sComments">–</b><span>總留言</span></div>
+            <div class="stat"><b id="sPeople">–</b><span>符合資格的人</span></div>
+            <div class="stat"><b id="sTickets">–</b><span>抽獎機會</span></div>
+          </div>
+          <div class="tabs">
+            <button class="chip on" data-t="ok" onclick="setListTab('ok')">符合資格</button>
+            <button class="chip" data-t="sus" onclick="setListTab('sus')">疑似抽獎帳</button>
+            <button class="chip" data-t="no" onclick="setListTab('no')">不符資格</button>
+          </div>
+          <div id="loadMsg" class="progress hidden"></div>
+          <div id="list" class="list"></div>
+          <div style="margin-top:16px">
+            <button class="btn" id="toDraw" onclick="goStep(3)">規則確定，去抽獎 →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ③ 抽獎 -->
+    <section id="view3" class="hidden">
+      <div class="stage">
+        <div class="title">🎁 PUFF &amp; MOM 抽獎</div>
+        <div class="post-cap" id="stageCap"></div>
+        <div class="roller" id="roller">準備好了嗎？</div>
+        <div class="meta" id="stageMeta"></div>
+        <button class="btn" id="drawBtn" onclick="startDraw()">開始抽獎</button>
+      </div>
+
+      <div id="resultWrap" class="hidden">
+        <div class="winners" id="winners"></div>
+
+        <div class="card" style="margin-top:16px">
+          <h2>得獎公告</h2>
+          <div class="sub">追蹤、分享限動 IG 查不到，請點帳號進去看，確認後在卡片上打勾。不符合就按「換備取」。</div>
+          <textarea id="announce" class="announce"></textarea>
+          <div class="row-btns">
+            <button class="btn small" onclick="copyAnnounce()">📋 複製公告</button>
+            <button class="btn small ghost" onclick="downloadCsv()">⬇️ 下載抽獎紀錄</button>
+            <button class="btn small ghost" onclick="redraw()">重新抽一次</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+/* ---------- 狀態 ---------- */
+const S = {
+  demo: false,
+  me: '',
+  posts: [],
+  postFilter: 'give',
+  post: null,
+  comments: [],
+  history: null,        // { users: {name:{normal, giveaway}}, scanned }
+  entries: null,        // computeEntries 的結果
+  listTab: 'ok',
+  draw: null,           // { at, order: [...] , winners: n }
+};
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function store(k, v) { try { v === undefined ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function load(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+
+/* ---------- API ---------- */
+async function api(action, params = {}) {
+  if (S.demo) return DEMO.api(action, params);
+  const qs = new URLSearchParams({ action, ...params });
+  const r = await fetch('/api/ig?' + qs, { headers: { 'x-pass': load('lottery_pass') || '' } });
+  let j;
+  try { j = await r.json(); } catch (e) { throw new Error('伺服器沒有回應'); }
+  if (j.error === 'need_pass') { const e = new Error('need_pass'); e.pass = true; throw e; }
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
+async function init() {
+  S.demo = new URLSearchParams(location.search).has('demo');
+  if (!S.demo) {
+    try {
+      const st = await api('status');
+      if (!st.configured) S.demo = true;
+      else S.me = st.username;
+    } catch (e) {
+      if (e.pass) { $('passBox').classList.remove('hidden'); return; }
+      S.demo = true; // 本機預覽或 API 沒部署
+    }
+  }
+  if (S.demo) { S.me = DEMO.me; $('demoNotice').classList.remove('hidden'); }
+  $('acct').textContent = '@' + S.me;
+  $('app').classList.remove('hidden');
+  bindRuleInputs();
+  goStep(1);
+  loadPosts();
+}
+
+function submitPass() {
+  store('lottery_pass', $('passInput').value.trim());
+  $('passErr').textContent = '';
+  api('status').then(st => { $('passBox').classList.add('hidden'); init(); })
+    .catch(e => { $('passErr').textContent = e.pass ? '密碼不對喔' : e.message; });
+}
+
+/* ---------- 步驟切換 ---------- */
+function goStep(n) {
+  if (n >= 2 && !S.post) return;
+  if (n === 3 && !(S.entries && S.entries.ok.length)) return;
+  [1,2,3].forEach(i => {
+    $('view' + i).classList.toggle('hidden', i !== n);
+    $('st' + i).className = 'step' + (i === n ? ' on' : (i < n || (i === 2 && S.post) ? ' done' : ''));
+  });
+  if (n === 3) prepareStage();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ---------- ① 貼文 ---------- */
+async function loadPosts() {
+  $('postsMsg').classList.remove('hidden');
+  $('postsMsg').innerHTML = '<span class="progress" style="justify-content:center"><span class="spin"></span>讀取貼文中…</span>';
+  try {
+    S.posts = (await api('posts')).posts;
+    if (!S.posts.some(p => p.giveaway)) S.postFilter = 'all';
+    renderPosts();
+  } catch (e) {
+    $('postsMsg').textContent = '讀不到貼文：' + e.message;
+  }
+}
+function setPostFilter(f) { S.postFilter = f; renderPosts(); }
+function renderPosts() {
+  document.querySelectorAll('[data-f]').forEach(b => b.classList.toggle('on', b.dataset.f === S.postFilter));
+  const list = S.posts.filter(p => S.postFilter === 'all' || p.giveaway);
+  $('postsMsg').classList.toggle('hidden', list.length > 0);
+  if (!list.length) $('postsMsg').textContent = '最近沒有看起來像抽獎的貼文，切到「全部貼文」找找看';
+  $('posts').innerHTML = list.map(p => `
+    <button class="post" onclick="pickPost('${p.id}')">
+      <div class="thumb" style="background-image:url('${esc(p.thumb)}')">${p.giveaway ? '<span class="tag">抽獎文</span>' : ''}</div>
+      <div class="meta">
+        <div class="date">${fmtDate(p.timestamp)}</div>
+        <div class="cap">${esc(p.caption.slice(0, 80)) || '（沒有文字）'}</div>
+        <div class="cc">💬 ${p.comments} 則留言</div>
+      </div>
+    </button>`).join('');
+}
+function fmtDate(t) { const d = new Date(t); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`; }
+
+async function pickPost(id) {
+  S.post = S.posts.find(p => p.id === id);
+  S.comments = []; S.history = null; S.entries = null; S.draw = null;
+  restoreRules();
+  $('ruleFor').textContent = '「' + (S.post.caption.split('\n')[0].slice(0, 40) || fmtDate(S.post.timestamp)) + '」';
+  goStep(2);
+  $('list').innerHTML = '';
+  showLoad(`讀取留言中…（共 ${S.post.comments} 則，留言多的話要等一下）`);
+  $('susHint').textContent = '正在查你最近的貼文，看每個人平常有沒有在留言…';
+  const historyP = api('history', { exclude: id }).then(h => { S.history = h; susHintText(); recompute(); })
+    .catch(e => { $('susHint').textContent = '查不到留言紀錄（' + e.message + '），只用帳號名稱判斷'; });
+  try {
+    S.comments = (await api('comments', { media: id })).comments;
+    hideLoad();
+    recompute();
+  } catch (e) {
+    showLoad('讀不到留言：' + e.message, true);
+  }
+  await historyP;
+}
+function susHintText() {
+  const h = S.history;
+  $('susHint').textContent = `已查過你最近 ${h.scanned} 篇貼文（其中 ${h.giveawayPosts} 篇抽獎文）：只在抽獎時出現、平常從不留言的，會標成疑似抽獎帳。`;
+}
+function showLoad(msg, isErr) {
+  $('loadMsg').classList.remove('hidden');
+  $('loadMsg').innerHTML = isErr ? `<span style="color:var(--danger)">${esc(msg)}</span>` : `<span class="spin"></span>${esc(msg)}`;
+}
+function hideLoad() { $('loadMsg').classList.add('hidden'); }
+
+/* ---------- ② 規則 ---------- */
+function bindRuleInputs() {
+  ['rKeywords','rTags','rNoRepeatTag','rCap','rDeadline','rExclude','rWinners','rBackups']
+    .forEach(id => $(id).addEventListener('input', recompute));
+  segBind('rMode', recompute);
+  segBind('rSus', recompute);
+}
+function segBind(id, cb) {
+  $(id).querySelectorAll('button').forEach(b => b.onclick = () => {
+    $(id).querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    cb();
+  });
+}
+function segVal(id) { return $(id).querySelector('button.on').dataset.v; }
+function segSet(id, v) { $(id).querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.v === v)); }
+
+function readRules() {
+  return {
+    keywords: $('rKeywords').value.split(/[,，、]/).map(s => s.trim().toLowerCase()).filter(Boolean),
+    tags: Math.max(0, parseInt($('rTags').value) || 0),
+    noRepeatTag: $('rNoRepeatTag').checked,
+    mode: segVal('rMode'),
+    cap: Math.max(0, parseInt($('rCap').value) || 0),
+    deadline: $('rDeadline').value,
+    sus: segVal('rSus'),
+    exclude: $('rExclude').value.split(/[\n,，\s]+/).map(s => s.replace(/^@/, '').trim().toLowerCase()).filter(Boolean),
+    winners: Math.max(1, parseInt($('rWinners').value) || 1),
+    backups: Math.max(0, parseInt($('rBackups').value) || 0),
+  };
+}
+function restoreRules() {
+  const r = load('lottery_rules_' + S.post.id) || load('lottery_rules_last') || {};
+  $('rKeywords').value = (r.keywords || []).join(', ');
+  $('rTags').value = r.tags ?? 1;
+  $('rNoRepeatTag').checked = r.noRepeatTag ?? true;
+  segSet('rMode', r.mode || 'once');
+  $('rCap').value = r.cap ?? 3;
+  $('rDeadline').value = r.deadline || '';
+  segSet('rSus', r.sus || 'mark');
+  $('rExclude').value = (r.exclude || []).join('\n');
+  $('rWinners').value = r.winners ?? 1;
+  $('rBackups').value = r.backups ?? 3;
+}
+
+// 帳號名稱像抽獎帳
+const NAME_SUS = /(lucky|luck|giveaway|give_away|prize|winner|win\d|freebie|抽獎|中獎|lottery|contest)/i;
+function nameLooksSus(u) {
+  return NAME_SUS.test(u) || /\d{5,}/.test(u) || /^(user|ig|insta)[._]?\d{3,}/i.test(u);
+}
+
+// 每個帳號的標記：sus（疑似抽獎帳，附原因）/ fan（老粉）/ new（第一次留言）
+function profileOf(u) {
+  const out = { sus: [], fan: false, first: false };
+  if (nameLooksSus(u)) out.sus.push('帳號名稱像抽獎帳');
+  const h = S.history && S.history.users[u];
+  if (S.history) {
+    if (!h) out.first = true;
+    else if (h.normal === 0 && h.giveaway >= 1) out.sus.push(`只在抽獎時出現（參加過 ${h.giveaway} 次，一般貼文 0 則）`);
+    else if (h.normal >= 2) out.fan = h.normal;
+  }
+  return out;
+}
+
+function computeEntries(r) {
+  const me = S.me.toLowerCase();
+  const deadline = r.deadline ? new Date(r.deadline).getTime() : null;
+  const byUser = new Map();
+  const sorted = [...S.comments].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  for (const c of sorted) {
+    const u = c.username;
+    const ul = u.toLowerCase();
+    if (ul === me) continue;
+    if (!byUser.has(u)) byUser.set(u, { user: u, comments: [], okComments: [], reasons: new Set(), usedTags: new Set() });
+    const e = byUser.get(u);
+    e.comments.push(c);
+
+    if (r.exclude.includes(ul)) { e.reasons.add('在排除名單'); continue; }
+    if (deadline && new Date(c.timestamp).getTime() > deadline) { e.reasons.add('超過截止時間才留言'); continue; }
+    const text = c.text.toLowerCase();
+    if (r.keywords.length && !r.keywords.some(k => text.includes(k))) { e.reasons.add('沒有寫到指定的字'); continue; }
+
+    const tags = [...new Set((c.text.match(/@([A-Za-z0-9._]{1,30})/g) || []).map(t => t.slice(1).toLowerCase().replace(/\.+$/, '')))]
+      .filter(t => t !== me && t !== ul);
+    const fresh = r.noRepeatTag ? tags.filter(t => !e.usedTags.has(t)) : tags;
+    if (fresh.length < r.tags) {
+      e.reasons.add(tags.length >= r.tags ? '重複 tag 已經 tag 過的人' : `tag 不到 ${r.tags} 位朋友`);
+      continue;
+    }
+    fresh.forEach(t => e.usedTags.add(t));
+    e.okComments.push(c);
+  }
+
+  const ok = [], sus = [], no = [];
+  for (const e of byUser.values()) {
+    e.profile = profileOf(e.user);
+    if (!e.okComments.length) { no.push(e); continue; }
+    e.tickets = r.mode === 'once' ? 1 : (r.cap ? Math.min(r.cap, e.okComments.length) : e.okComments.length);
+    if (e.profile.sus.length) {
+      sus.push(e);
+      if (r.sus === 'exclude') continue;
+    }
+    ok.push(e);
+  }
+  return { ok, sus, no, total: S.comments.length };
+}
+
+function recompute() {
+  if (!S.post) return;
+  const r = readRules();
+  $('rCapWrap').classList.toggle('hidden', r.mode === 'once');
+  store('lottery_rules_' + S.post.id, r);
+  store('lottery_rules_last', { ...r, deadline: '', exclude: r.exclude });
+  if (!S.comments.length && !$('loadMsg').classList.contains('hidden')) return;
+  S.entries = computeEntries(r);
+  $('sComments').textContent = S.entries.total;
+  $('sPeople').textContent = S.entries.ok.length;
+  $('sTickets').textContent = S.entries.ok.reduce((a, e) => a + e.tickets, 0);
+  $('toDraw').disabled = !S.entries.ok.length;
+  document.querySelector('[data-t="sus"]').textContent = `疑似抽獎帳（${S.entries.sus.length}）`;
+  document.querySelector('[data-t="no"]').textContent = `不符資格（${S.entries.no.length}）`;
+  document.querySelector('[data-t="ok"]').textContent = `符合資格（${S.entries.ok.length}）`;
+  renderList();
+}
+
+function setListTab(t) { S.listTab = t; renderList(); }
+function badges(p) {
+  let h = '';
+  if (p.sus.length) h += `<span class="badge sus" title="${esc(p.sus.join('；'))}">⚠️ 疑似抽獎帳</span>`;
+  if (p.fan) h += `<span class="badge fan">💚 老粉・留言過 ${p.fan} 篇</span>`;
+  if (p.first && !p.sus.length) h += `<span class="badge new">第一次留言</span>`;
+  return h;
+}
+function profileLink(u) { return `<a href="https://www.instagram.com/${encodeURIComponent(u)}/" target="_blank" rel="noopener">@${esc(u)}</a>`; }
+
+function renderList() {
+  document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.listTab));
+  if (!S.entries) return;
+  const r = readRules();
+  const arr = S.entries[S.listTab];
+  if (!arr.length) {
+    $('list').innerHTML = `<div class="empty">${S.listTab === 'sus' ? (S.history ? '沒有發現可疑帳號 👍' : '還在查留言紀錄…') : '沒有人'}</div>`;
+    return;
+  }
+  $('list').innerHTML = arr.slice(0, 600).map(e => {
+    const c = (e.okComments[0] || e.comments[0]);
+    const why = S.listTab === 'no' ? `<div class="why">✗ ${[...e.reasons].join('、')}</div>`
+      : S.listTab === 'sus' ? `<div class="why" style="color:var(--warn)">${esc(e.profile.sus.join('；'))}${r.sus === 'exclude' ? '（已排除）' : '（仍可參加）'}</div>` : '';
+    const tix = S.listTab === 'no' ? '' : `<div class="tix">${e.tickets} 次</div>`;
+    return `<div class="row"><div class="who">
+      <div class="name">${profileLink(e.user)} ${badges(e.profile)}</div>
+      <div class="txt">${esc(c.text)}${e.comments.length > 1 ? ` <span style="color:var(--muted)">（共留 ${e.comments.length} 則）</span>` : ''}</div>
+      ${why}</div>${tix}</div>`;
+  }).join('') + (arr.length > 600 ? `<div class="empty">…還有 ${arr.length - 600} 人，抽獎時都會算進去</div>` : '');
+}
+
+/* ---------- ③ 抽獎 ---------- */
+function prepareStage() {
+  const r = readRules();
+  const tickets = S.entries.ok.reduce((a, e) => a + e.tickets, 0);
+  $('stageCap').textContent = S.post.caption.split('\n')[0].slice(0, 50);
+  $('stageMeta').innerHTML = `符合資格 ${S.entries.ok.length} 人・共 ${tickets} 次機會<br>正取 ${r.winners} 位・備取 ${r.backups} 位`;
+  if (!S.draw) {
+    $('roller').textContent = '準備好了嗎？';
+    $('drawBtn').classList.remove('hidden');
+    $('resultWrap').classList.add('hidden');
+  }
+}
+
+// 用瀏覽器的密碼學亂數，每抽出一人就把他所有機會拿掉
+function rand(n) {
+  const a = new Uint32Array(1);
+  const lim = Math.floor(0x100000000 / n) * n;
+  do { crypto.getRandomValues(a); } while (a[0] >= lim);
+  return a[0] % n;
+}
+function drawOrder(entries, count) {
+  const pool = entries.map(e => ({ e, t: e.tickets }));
+  const out = [];
+  while (out.length < count && pool.length) {
+    const total = pool.reduce((a, x) => a + x.t, 0);
+    let k = rand(total);
+    const i = pool.findIndex(x => (k -= x.t) < 0);
+    out.push(pool[i].e);
+    pool.splice(i, 1);
+  }
+  return out;
+}
+
+async function startDraw() {
+  const r = readRules();
+  const order = drawOrder(S.entries.ok, r.winners + r.backups);
+  S.draw = { at: new Date(), rules: r, order: order.map(e => ({ e, follow: false, story: false, bad: false })), winners: r.winners };
+  $('drawBtn').classList.add('hidden');
+  const names = S.entries.ok.map(e => e.user);
+  // 滾動動畫（錄影用）
+  for (let i = 0; i < Math.min(r.winners, order.length); i++) {
+    await roll(names, order[i].user, 2200);
+    await sleep(700);
+  }
+  $('roller').textContent = '🎉 恭喜 ' + order.slice(0, r.winners).map(e => '@' + e.user).join('、');
+  $('stageMeta').innerHTML += `<br>抽獎時間 ${S.draw.at.toLocaleString('zh-TW')}`;
+  renderWinners();
+  $('resultWrap').classList.remove('hidden');
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function roll(names, final, dur) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < dur) {
+    const p = (performance.now() - t0) / dur;
+    $('roller').textContent = '@' + names[rand(names.length)];
+    await sleep(40 + p * p * 220);
+  }
+  $('roller').textContent = '@' + final;
+}
+
+function currentWinners() {
+  // 前面有人被標成不符資格時，由備取依序補上
+  const good = S.draw.order.filter(x => !x.bad);
+  return { win: good.slice(0, S.draw.winners), back: good.slice(S.draw.winners) };
+}
+
+function renderWinners() {
+  const { win, back } = currentWinners();
+  const card = (x, label, isBack) => {
+    const idx = S.draw.order.indexOf(x);
+    const c = x.e.okComments[0];
+    return `<div class="win ${isBack ? 'backup' : ''} ${x.bad ? 'bad' : ''}">
+      <div class="rank">${label}</div>
+      <div class="uname">${profileLink(x.e.user)} ${badges(x.e.profile)}</div>
+      <div class="txt">${esc(c.text)}</div>
+      ${isBack ? '' : `<div class="checks">
+        <label class="check"><input type="checkbox" ${x.follow ? 'checked' : ''} onchange="S.draw.order[${idx}].follow=this.checked"> 有追蹤我</label>
+        <label class="check"><input type="checkbox" ${x.story ? 'checked' : ''} onchange="S.draw.order[${idx}].story=this.checked"> 有分享限動</label>
+      </div>
+      <div class="acts"><button class="btn small ghost" onclick="markBad(${idx})">不符合，換備取</button></div>`}
+    </div>`;
+  };
+  const bad = S.draw.order.filter(x => x.bad);
+  $('winners').innerHTML =
+    win.map((x, i) => card(x, `🏆 正取 ${i + 1}`, false)).join('') +
+    back.map((x, i) => card(x, `備取 ${i + 1}`, true)).join('') +
+    bad.map(x => `<div class="win bad"><div class="rank">已取消資格</div><div class="uname">@${esc(x.e.user)}</div>
+      <div class="acts"><button class="btn small ghost" onclick="unmarkBad(${S.draw.order.indexOf(x)})">恢復</button></div></div>`).join('');
+  if (!win.length) $('winners').innerHTML += '<div class="empty">備取用完了，可以按「重新抽一次」</div>';
+  $('announce').value = announceText(win);
+}
+function markBad(i) { S.draw.order[i].bad = true; renderWinners(); }
+function unmarkBad(i) { S.draw.order[i].bad = false; renderWinners(); }
+
+function announceText(win) {
+  return `🎉 抽獎結果公布 🎉\n\n恭喜 ${win.map(x => '@' + x.e.user).join(' ')}\n\n請在 3 天內私訊我們寄送資料，逾期由備取遞補喔！\n謝謝大家熱情參加 💛\n\n＊本活動與 Instagram 無關`;
+}
+function copyAnnounce() {
+  navigator.clipboard.writeText($('announce').value).then(() => toastBtn(event.target, '✅ 已複製'));
+}
+function toastBtn(b, t) { const o = b.textContent; b.textContent = t; setTimeout(() => b.textContent = o, 1400); }
+
+function redraw() {
+  if (!confirm('確定要重新抽？剛剛的結果會被取代')) return;
+  S.draw = null;
+  prepareStage();
+  startDraw();
+}
+
+function downloadCsv() {
+  const r = S.draw.rules;
+  const { win, back } = currentWinners();
+  const status = new Map();
+  win.forEach((x, i) => status.set(x.e.user, '正取' + (i + 1)));
+  back.forEach((x, i) => status.set(x.e.user, '備取' + (i + 1)));
+  S.draw.order.filter(x => x.bad).forEach(x => status.set(x.e.user, '取消資格'));
+  const rows = [
+    ['貼文', S.post.permalink || ''],
+    ['抽獎時間', S.draw.at.toLocaleString('zh-TW')],
+    ['規則', `關鍵字:${r.keywords.join('/') || '不限'}; tag:${r.tags}位; 重複tag不算:${r.noRepeatTag ? '是' : '否'}; 每人:${r.mode === 'once' ? '一次' : '每則都算(上限' + (r.cap || '不限') + ')'}; 截止:${r.deadline || '無'}; 疑似抽獎帳:${r.sus === 'exclude' ? '排除' : '只標記'}`],
+    [],
+    ['帳號', '結果', '抽獎機會', '符合的留言數', '疑似抽獎帳', '老粉', '第一則符合的留言'],
+    ...S.entries.ok.map(e => [e.user, status.get(e.user) || '', e.tickets, e.okComments.length, e.profile.sus.join('；'), e.profile.fan || '', e.okComments[0].text]),
+    ...(r.sus === 'exclude' ? S.entries.sus.map(e => [e.user, '排除(疑似抽獎帳)', 0, e.okComments.length, e.profile.sus.join('；'), '', e.okComments[0].text]) : []),
+  ];
+  const csv = '﻿' + rows.map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `抽獎紀錄_${fmtDate(S.draw.at).replace(/\//g, '-')}.csv`;
+  a.click();
+}
+
+/* ---------- 示範資料 ---------- */
+const DEMO = (() => {
+  const me = 'puff.andmom';
+  const fans = ['mia.mama_daily','chen_family3','yuting.kids','littlebean_mom','hsu.jiajia','momo_and_lulu','amy.lin.tw','kai_papa','peiyu_home','wen.ching','annie_wu88','ruru_mama','joanne.chang','sunny.days.tw','xiaoyu_mom'];
+  const newbies = ['cindy_liao','happy.bear.tw','tina_hsieh','linlin.mama','jay_chou_fan'];
+  const hunters = ['lucky_girl_2024','giveaway.queen','win_win_win88','free_prize_tw','user83920147','抽獎達人_amy'];
+  const friends = ['bestie_jo','kelly.w','ann_ann','mandy_c','sisi_lin','ivy.huang','lulu.tw','nana_c','ben_yang','cathy.k'];
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  const img = (c1, c2) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='${c1}'/><stop offset='1' stop-color='${c2}'/></linearGradient></defs><rect width='10' height='10' fill='url(#g)'/></svg>`)}`;
+  const posts = [
+    { id: '1001', caption: '🎁 抽獎｜泡芙最愛的繪本組送給 3 位！\n留言「想要」並 tag 2 位朋友，追蹤 @puff.andmom 即可參加', thumb: img('#fbcd2c','#f59f45'), timestamp: '2026-09-20T12:00:00+0800', giveaway: true },
+    { id: '1002', caption: '今天去動物園，泡芙一直說要看長頸鹿 🦒', thumb: img('#8fd19e','#1e5929'), timestamp: '2026-09-15T20:00:00+0800', giveaway: false },
+    { id: '1003', caption: '開學第一週的便當分享 🍱', thumb: img('#ffd6e0','#e88aa5'), timestamp: '2026-09-08T19:30:00+0800', giveaway: false },
+    { id: '1004', caption: '【抽獎】水壺送出 2 個！留言 tag 1 位朋友', thumb: img('#bde0fe','#5a8dee'), timestamp: '2026-08-28T12:00:00+0800', giveaway: true },
+    { id: '1005', caption: '小一書桌終於組好了！', thumb: img('#e9d8a6','#b08968'), timestamp: '2026-08-20T21:00:00+0800', giveaway: false },
+  ];
+  // 抽獎文 1001 的留言
+  const comments = [];
+  let n = 0;
+  const add = (u, text, h) => comments.push({ id: 'c' + (++n), username: u, text, timestamp: new Date(Date.parse('2026-09-20T12:10:00+0800') + (h || n) * 3600e3 / 3).toISOString() });
+  fans.forEach((u, i) => add(u, `想要 ${i % 3 === 0 ? '好喜歡這套！' : ''}@${friends[i % 10]} @${friends[(i + 3) % 10]}`));
+  newbies.forEach((u, i) => add(u, `想要 @${friends[(i + 5) % 10]} @${friends[(i + 1) % 10]}`));
+  hunters.forEach((u, i) => add(u, `想要❤️ @${friends[i]} @${friends[i + 1]}`));
+  add('mia.mama_daily', '想要想要 @bestie_jo @kelly.w');            // 重複 tag 同一批人
+  add('chen_family3', '再留一次 想要 @mandy_c @sisi_lin');           // 新的朋友 → 算
+  add('yuting.kids', '好可愛 @ann_ann');                              // 沒寫想要、只 tag 1 位
+  add('kai_papa', '想要');                                            // 沒 tag
+  add('lucky_girl_2024', '想要 @ivy.huang @lulu.tw');
+  add('puff.andmom', '謝謝大家熱情參加～');
+  add('peiyu_home', '想要 @nana_c @ben_yang', 90);                    // 很晚才留言（可測截止時間）
+  const history = { scanned: 4, giveawayPosts: 1, users: {} };
+  fans.forEach((u, i) => history.users[u] = { normal: 2 + (i % 4), giveaway: 1 });
+  hunters.slice(0, 4).forEach(u => history.users[u] = { normal: 0, giveaway: 1 });
+  posts.forEach(p => p.comments = p.id === '1001' ? comments.length : 20 + Math.floor(Math.random() * 60));
+  return {
+    me,
+    async api(action) {
+      await sleep(400);
+      if (action === 'posts') return { posts };
+      if (action === 'comments') return { comments };
+      if (action === 'history') { await sleep(800); return history; }
+      return {};
+    },
+  };
+})();
+
+init();
+</script>
+</body>
+</html>
