@@ -119,6 +119,15 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
 </style>
 <link rel="stylesheet" href="/pixel.css">
 <script src="/pixel.js"></script>
+<style>
+  /* 下拉選單：加上 ▼ 讓人看得出可以點開 */
+  body select {
+    -webkit-appearance: none; appearance: none; cursor: pointer; padding-right: 40px !important;
+    background: #fffdf2 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M0 0h12L6 8z' fill='%236a5153'/%3E%3C/svg%3E") no-repeat right 14px center / 12px 8px !important;
+  }
+  body select:hover { background-color: #fff1dc !important; }
+  .bt .mv { display:flex; gap:6px; }
+</style>
 </head>
 <body>
 
@@ -182,7 +191,10 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           <label class="l">同一個人多久內不重複回</label>
           <div style="display:flex;gap:8px;align-items:center"><input type="number" id="reCooldown" min="0" value="24" style="width:90px"> <span style="font-size:13px">小時</span></div>
         </div>
-        <div class="field"><label class="check"><input type="checkbox" id="reActive" checked> 啟用這條規則</label></div>
+        <div class="field">
+          <label class="check"><input type="checkbox" id="reActive" checked> 開始自動回覆</label>
+          <div class="hint">打勾＝這條規則會自動回覆客人。取消打勾＝先暫停（規則會保留，之後在列表按「恢復」就能再開）。</div>
+        </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" onclick="saveRule()">儲存</button>
           <button class="btn ghost" onclick="closeRule()">取消</button>
@@ -313,13 +325,13 @@ function renderRules() {
     ${D.rules.length ? D.rules.map(r => `<div class="rule">
       <div class="thumb" style="${r.media_thumb ? `background-image:url('${esc(r.media_thumb)}')` : ''}">${r.media_thumb ? '' : (r.trigger === 'dm' ? '私訊' : '全部')}</div>
       <div class="body">
-        <div class="name">${esc(r.name)} <span class="tag">${TRIG[r.trigger]}</span>${r.active ? '' : '<span class="tag off">已停用</span>'}</div>
+        <div class="name">${esc(r.name)} <span class="tag">${TRIG[r.trigger]}</span>${r.active ? '' : '<span class="tag off">暫停中</span>'}</div>
         <div class="stats">${r.media_id ? esc(r.media_label || '') : (r.trigger === 'dm' ? '所有私訊' : '全部' + (r.trigger === 'story' ? '限動' : '貼文'))}　→　${esc(tpl(r.first_template_id)?.name || '（沒選私訊範本）')}</div>
         <div class="kws">${(r.keywords || []).map(k => `<span class="kw">${esc(k)}</span>`).join('')}${r.fuzzy !== false ? '<span class="kw" style="background:none">＋同音</span>' : ''}</div>
         <div class="stats" id="rs-${r.id}">${ruleStats(r.id)}</div>
       </div>
       <div class="acts">
-        <button class="btn small ghost" onclick="toggleRule(${r.id})">${r.active ? '停用' : '啟用'}</button>
+        <button class="btn small ghost" onclick="toggleRule(${r.id})">${r.active ? '暫停' : '恢復'}</button>
         <button class="btn small ghost" onclick="editRule(${r.id})">編輯</button>
         <button class="btn small danger" onclick="delRow('ar_rules', ${r.id})">刪除</button>
       </div>
@@ -333,10 +345,33 @@ function segBind(id, cb) {
 }
 function segSet(id, v) { $(id).querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.v === v)); }
 function segVal(id) { return $(id).querySelector('button.on').dataset.v; }
-segBind('reTrigger', () => { D.edit.media_id = null; D.edit.media_label = null; D.edit.media_thumb = null; syncRuleForm(); });
+segBind('reTrigger', () => { D.edit.media_id = null; D.edit.media_label = null; D.edit.media_thumb = null; syncRuleForm(); ruleDraft(); });
 
+function ruleForm() {
+  const e = D.edit;
+  return {
+    id: e.id || null,
+    name: $('reName').value.trim(),
+    trigger: segVal('reTrigger'),
+    media_id: e.trigger === 'dm' ? null : (e.media_id || null),
+    media_label: e.media_label || null, media_thumb: e.media_thumb || null,
+    keywords: $('reKeywords').value.split(/[,，、\n]/).map(s => s.trim()).filter(Boolean),
+    fuzzy: $('reFuzzy').checked,
+    public_reply_ids: [...$('rePublic').querySelectorAll('input:checked')].map(x => +x.value),
+    first_template_id: +$('reTemplate').value || null,
+    cooldown_hours: Math.max(0, parseInt($('reCooldown').value) || 0),
+    active: $('reActive').checked,
+  };
+}
+function ruleDirty() { return !!D.edit && D.edit.snap !== undefined && JSON.stringify(ruleForm()) !== D.edit.snap; }
+function ruleDraft() { if (D.edit && D.edit.snap !== undefined) store('ar_draft_rule', ruleForm()); }
 function editRule(id) {
-  const r = id ? D.rules.find(x => x.id === id) : { trigger: 'comment', keywords: [], fuzzy: true, public_reply_ids: D.replies.map(x => x.id), cooldown_hours: 24, active: true };
+  if (ruleDirty() && !confirm('正在編輯的規則還沒儲存，確定要放棄嗎？')) return;
+  let r = id ? D.rules.find(x => x.id === id) : { trigger: 'comment', keywords: [], fuzzy: true, public_reply_ids: [], cooldown_hours: 24, active: true };
+  const dr = load('ar_draft_rule');
+  let fromDraft = false;
+  if (dr && (dr.id || null) === (id || null) && (dr.name || dr.keywords.length) && confirm('上次有還沒儲存的規則，要接回來繼續編輯嗎？')) { r = { ...r, ...dr, id: r.id }; fromDraft = true; }
+  else { try { localStorage.removeItem('ar_draft_rule'); } catch (e) {} }
   D.edit = { ...r };
   $('reTitle').textContent = id ? '編輯規則' : '新增規則';
   $('reName').value = r.name || '';
@@ -349,10 +384,18 @@ function editRule(id) {
   $('rePublic').innerHTML = D.replies.length ? D.replies.map(x => `<label class="check" style="margin-bottom:6px"><input type="checkbox" value="${x.id}" ${(r.public_reply_ids || []).includes(x.id) ? 'checked' : ''}> ${esc(x.text)}</label>`).join('') : '<div class="hint">回覆庫是空的，到「公開回覆庫」新增</div>';
   $('reErr').textContent = '';
   $('ruleEdit').classList.remove('hidden');
+  D.edit.snap = undefined;
   syncRuleForm();
+  D.edit.snap = fromDraft ? '' : JSON.stringify(ruleForm());
   $('ruleEdit').scrollIntoView({ behavior: 'smooth' });
 }
-function closeRule() { $('ruleEdit').classList.add('hidden'); D.edit = null; }
+function closeRule(force) {
+  if (!force && ruleDirty() && !confirm('還沒儲存，確定要放棄這些內容嗎？')) return;
+  $('ruleEdit').classList.add('hidden'); D.edit = null;
+  try { localStorage.removeItem('ar_draft_rule'); } catch (e) {}
+}
+['reName', 'reKeywords', 'reFuzzy', 'reTemplate', 'reCooldown', 'reActive'].forEach(id => $(id).addEventListener('input', ruleDraft));
+$('rePublic').addEventListener('change', ruleDraft);
 
 async function syncRuleForm() {
   const t = segVal('reTrigger');
@@ -385,24 +428,12 @@ function pickMedia(id) {
   const items = D.media[D.edit.trigger === 'story' ? 'stories' : 'posts'] || [];
   const i = items.find(x => x.id === id);
   D.edit.media_id = id; D.edit.media_label = i ? i.label : null; D.edit.media_thumb = i ? i.thumb : null;
-  syncRuleForm();
+  syncRuleForm(); ruleDraft();
 }
 
 async function saveRule() {
-  const e = D.edit;
-  const row = {
-    ...(e.id ? { id: e.id } : {}),
-    name: $('reName').value.trim(),
-    trigger: segVal('reTrigger'),
-    media_id: e.trigger === 'dm' ? null : e.media_id,
-    media_label: e.media_label, media_thumb: e.media_thumb,
-    keywords: $('reKeywords').value.split(/[,，、\n]/).map(s => s.trim()).filter(Boolean),
-    fuzzy: $('reFuzzy').checked,
-    public_reply_ids: [...$('rePublic').querySelectorAll('input:checked')].map(x => +x.value),
-    first_template_id: +$('reTemplate').value || null,
-    cooldown_hours: Math.max(0, parseInt($('reCooldown').value) || 0),
-    active: $('reActive').checked,
-  };
+  const row = ruleForm();
+  if (!row.id) delete row.id;
   if (!row.name) return $('reErr').textContent = '幫規則取個名字';
   if (!row.keywords.length) return $('reErr').textContent = '至少要一個關鍵字';
   if (!row.first_template_id) return $('reErr').textContent = '選一個私訊範本（沒有的話先去「私訊範本」新增）';
@@ -411,7 +442,7 @@ async function saveRule() {
     const { row: saved } = await api('save', { table: 'ar_rules', row });
     const i = D.rules.findIndex(x => x.id === saved.id);
     if (i >= 0) D.rules[i] = saved; else D.rules.unshift(saved);
-    closeRule(); renderRules();
+    closeRule(true); renderRules();
   } catch (err) { $('reErr').textContent = err.message; }
 }
 async function toggleRule(id) {
@@ -450,8 +481,20 @@ function renderTpls() {
     </div>`).join('') : '<div class="empty">還沒有範本</div>'}
   </div>`;
 }
+function tplForm() {
+  return { id: D.tedit.id || null, name: $('teName').value, text: $('teText').value, image_url: $('teImage').value, buttons: D.tedit.buttons };
+}
+function tplDirty() { return !!D.tedit && JSON.stringify(tplForm()) !== D.tedit.snap; }
+function tplDraft() { if (D.tedit) store('ar_draft_tpl', tplForm()); }
 function editTpl(id) {
-  const t = id ? D.templates.find(x => x.id === id) : { buttons: [] };
+  if (tplDirty() && !confirm('正在編輯的範本還沒儲存，確定要放棄嗎？')) return;
+  let t = id ? D.templates.find(x => x.id === id) : { buttons: [] };
+  const dr = load('ar_draft_tpl');
+  let fromDraft = false;
+  if (dr && (dr.id || null) === (id || null) && JSON.stringify(dr) !== JSON.stringify({ id: t.id || null, name: t.name || '', text: t.text || '', image_url: t.image_url || '', buttons: t.buttons || [] })) {
+    if (confirm('上次有還沒儲存的內容，要接回來繼續編輯嗎？')) { t = { ...t, ...dr, id: t.id }; fromDraft = true; }
+    else { try { localStorage.removeItem('ar_draft_tpl'); } catch (e) {} }
+  }
   D.tedit = { ...t, buttons: JSON.parse(JSON.stringify(t.buttons || [])) };
   $('teTitle').textContent = id ? '編輯私訊範本' : '新增私訊範本';
   $('teName').value = t.name || '';
@@ -460,9 +503,14 @@ function editTpl(id) {
   $('teErr').textContent = '';
   $('tplEdit').classList.remove('hidden');
   renderBtns(); preview();
+  D.tedit.snap = fromDraft ? '' : JSON.stringify(tplForm());
   $('tplEdit').scrollIntoView({ behavior: 'smooth' });
 }
-function closeTpl() { $('tplEdit').classList.add('hidden'); D.tedit = null; }
+function closeTpl(force) {
+  if (!force && tplDirty() && !confirm('還沒儲存，確定要放棄這些內容嗎？')) return;
+  $('tplEdit').classList.add('hidden'); D.tedit = null;
+  try { localStorage.removeItem('ar_draft_tpl'); } catch (e) {}
+}
 function tplOptions(sel, excludeId) {
   return '<option value="">（選範本）</option>' + D.templates.filter(t => t.id !== excludeId).map(t => `<option value="${t.id}" ${t.id === sel ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
 }
@@ -474,21 +522,27 @@ function renderBtns() {
     ${b.type === 'url' ? `<input class="full" type="url" placeholder="https://reurl.cc/..." value="${esc(b.url || '')}" oninput="setB(${i},'url',this.value)">` : ''}
     ${b.type !== 'url' ? `<label class="l full" style="margin:0">${b.type === 'gate' ? '有追蹤的話傳' : '按了之後傳'}</label><select class="full" onchange="setB(${i},'next',+this.value||null)">${tplOptions(b.next, D.tedit.id)}</select>` : ''}
     ${b.type === 'gate' ? `<label class="l full" style="margin:0">沒追蹤的話傳（不選＝預設「追蹤後再按一次」）</label><select class="full" onchange="setB(${i},'fail',+this.value||null)">${tplOptions(b.fail, D.tedit.id)}</select>` : ''}
-    <button class="btn small danger x full" onclick="D.tedit.buttons.splice(${i},1);renderBtns();preview()">移除這顆</button>
+    <div class="full mv">
+      <button class="btn small ghost" ${i === 0 ? 'disabled' : ''} onclick="moveB(${i},-1)">⬆️ 往上</button>
+      <button class="btn small ghost" ${i === bs.length - 1 ? 'disabled' : ''} onclick="moveB(${i},1)">⬇️ 往下</button>
+      <button class="btn small danger" style="margin-left:auto" onclick="D.tedit.buttons.splice(${i},1);renderBtns();preview()">移除這顆</button>
+    </div>
   </div>`).join('');
   $('teAddBtn').classList.toggle('hidden', bs.length >= 3);
 }
+function moveB(i, d) { const b = D.tedit.buttons; [b[i], b[i + d]] = [b[i + d], b[i]]; renderBtns(); preview(); }
 function setB(i, k, v) { D.tedit.buttons[i][k] = v; if (k === 'type') renderBtns(); preview(); }
 function addBtn() { D.tedit.buttons.push({ type: 'url', title: '' }); renderBtns(); preview(); }
 function preview() {
   if (!D.tedit) return;
   const text = $('teText').value, img = $('teImage').value.trim();
+  tplDraft();
   $('teCount').textContent = text.length;
   $('teCount').style.color = text.length > 640 ? 'var(--danger)' : '';
   $('tePreview').innerHTML = (img ? `<img class="pv-img" src="${esc(img)}" onerror="this.style.display='none'">` : '') +
     `<div class="bubble">${esc(text) || '<span style="color:#999">（訊息文字）</span>'}${D.tedit.buttons.map(b => `<span class="bb">${esc(b.title || '按鈕')}</span>`).join('')}</div>`;
 }
-['teText', 'teImage'].forEach(id => $(id).addEventListener('input', preview));
+['teName', 'teText', 'teImage'].forEach(id => $(id).addEventListener('input', preview));
 
 async function saveTpl() {
   const t = D.tedit;
@@ -505,7 +559,7 @@ async function saveTpl() {
     const { row: saved } = await api('save', { table: 'ar_templates', row });
     const i = D.templates.findIndex(x => x.id === saved.id);
     if (i >= 0) D.templates[i] = saved; else D.templates.unshift(saved);
-    closeTpl(); renderTpls();
+    closeTpl(true); renderTpls();
   } catch (e) { $('teErr').textContent = e.message; }
 }
 
@@ -546,6 +600,7 @@ function renderLog() {
   </tr>`).join('') || '<tr><td colspan="5" class="empty">還沒有紀錄</td></tr>';
 }
 
+window.addEventListener('beforeunload', e => { if (tplDirty() || ruleDirty()) { e.preventDefault(); e.returnValue = ''; } });
 init();
 </script>
 </body>

@@ -64,8 +64,3 @@ alter table ar_rules enable row level security;
 alter table ar_sent enable row level security;
 alter table ar_events enable row level security;
 alter table app_secrets enable row level security;
-
--- 預設公開回覆庫
-insert into ar_public_replies (text) values
-  ('已私訊你囉 💌'), ('快去收私訊～ 📩'), ('傳過去了喔 🙌'), ('私訊給你啦，記得看一下 💛'), ('收到！去私訊找找 ✨')
-on conflict do nothing;
