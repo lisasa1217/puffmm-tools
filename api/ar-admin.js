@@ -2,7 +2,7 @@
 const { db, ig } = require('../lib/ar');
 
 const TABLES = {
-  ar_rules: ['name', 'trigger', 'media_id', 'media_label', 'media_thumb', 'keywords', 'fuzzy', 'public_reply_ids', 'first_template_id', 'cooldown_hours', 'active'],
+  ar_rules: ['name', 'trigger', 'media_id', 'media_label', 'media_thumb', 'keywords', 'fuzzy', 'public_reply_ids', 'first_template_id', 'cooldown_hours', 'active', 'any_text', 'starts_at', 'ends_at'],
   ar_templates: ['name', 'text', 'image_url', 'buttons'],
   ar_public_replies: ['text'],
 };

@@ -22,7 +22,10 @@ function validSig(raw, header) {
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
 async function rulesFor(trigger) {
-  return db(`ar_rules?active=eq.true&trigger=eq.${trigger}&select=*&order=id`);
+  const now = Date.now();
+  const rows = await db(`ar_rules?active=eq.true&trigger=eq.${trigger}&select=*&order=id`);
+  // 還沒開始、已經結束的規則不回
+  return rows.filter(r => (!r.starts_at || new Date(r.starts_at) <= now) && (!r.ends_at || new Date(r.ends_at) > now));
 }
 async function template(id) {
   if (!id) return null;
@@ -57,7 +60,7 @@ async function claim(rule, userId) {
 function firstMatch(rules, mediaId, text) {
   const ordered = [...rules.filter(r => r.media_id && r.media_id === mediaId), ...rules.filter(r => !r.media_id)];
   for (const r of ordered) {
-    const kw = matchKeyword(text, r.keywords, r.fuzzy !== false);
+    const kw = r.any_text ? (String(text || '').trim() ? '（任何內容）' : null) : matchKeyword(text, r.keywords, r.fuzzy !== false);
     if (kw) return { rule: r, kw };
   }
   return null;

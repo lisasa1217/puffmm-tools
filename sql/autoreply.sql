@@ -28,6 +28,9 @@ create table if not exists ar_rules (
   public_reply_ids bigint[] default '{}',
   first_template_id bigint references ar_templates(id) on delete set null,
   cooldown_hours int default 24,        -- 限動／私訊：同一人多久內不重複回
+  any_text boolean default false,       -- 任何內容都觸發（不看關鍵字）
+  starts_at timestamptz,                -- 什麼時候開始回（空白＝立刻）
+  ends_at timestamptz,                  -- 什麼時候停（空白＝一直回）
   active boolean default true,
   created_at timestamptz default now()
 );

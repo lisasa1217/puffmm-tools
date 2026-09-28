@@ -134,6 +134,33 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   .flow .arrow { font-size:12.5px; color: var(--muted); margin: 6px 0 12px; }
   .link-row { display:grid; grid-template-columns: 1fr 1.6fr auto; gap:8px; margin-bottom:8px; }
   .reply input { flex:1; }
+  .rcards { display:grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap:14px; }
+  .rc { background:#fffdf4; padding:16px; box-shadow: 0 0 0 2px #6a5153; display:flex; flex-direction:column; gap:10px; }
+  .rc.off { opacity:.62; }
+  .rc .top { display:flex; gap:12px; }
+  .rc .th { width:72px; height:72px; flex-shrink:0; background:#fff1dc center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-size:12px; color: var(--muted); box-shadow: 0 0 0 2px #6a5153; }
+  .rc h3 { font-size:16px; margin-bottom:6px; line-height:1.35; word-break:break-word; }
+  .rc .tags { display:flex; gap:6px; flex-wrap:wrap; }
+  .pill { font-size:11.5px; padding:2px 8px; background:#f1ebe4; color:#6a5153; white-space:nowrap; }
+  .pill.gate { background:#fde2ea; color:#c2456b; }
+  .pill.time { background:#d9f1e5; color:#2f7a5b; }
+  .pill.wait { background:#eee; color:#777; }
+  .pill.end, .pill.pause { background:#eee; color:#999; }
+  .rc .kwl { font-size:13px; color:#6a5153; }
+  .rc .warn { font-size:12.5px; color:#b4540a; }
+  .rc .nums { display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color: var(--muted); padding-bottom:10px; border-bottom:1px dashed #d9cbbd; }
+  .rc .nums b { color:#5f4649; font-size:14px; margin-left:3px; }
+  .rc .acts3 { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
+  .sched { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  @media (max-width: 800px) {
+    .rcards { grid-template-columns: 1fr; }
+    .tabs { position:fixed; left:0; right:0; bottom:0; z-index:40; margin:0 !important; background:#fffdf4; padding:6px 6px calc(6px + env(safe-area-inset-bottom)) !important;
+      display:grid !important; grid-template-columns: repeat(4, 1fr); box-shadow: 0 -2px 0 0 #6a5153 !important; }
+    .tabs .chip { border:none; background:none; padding:8px 2px; font-size:12px; text-align:center; }
+    .tabs .chip.on { background:#fde2ea; }
+    .wrap { padding-bottom: 90px !important; }
+    .sched { grid-template-columns: 1fr; }
+  }
   @media (max-width: 800px) { .link-row { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -181,6 +208,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
         </div>
         <div class="field">
           <label class="l">關鍵字</label>
+          <label class="check" style="margin-bottom:8px"><input type="checkbox" id="reAny"> 任何內容都觸發（不用關鍵字，有留言就回）</label>
           <input type="text" id="reKeywords" placeholder="新鮮, fresh, +1">
           <label class="check" style="margin-top:8px"><input type="checkbox" id="reFuzzy" checked> 同音錯字也算（例如「新先」「心鮮」＝新鮮）</label>
           <div class="hint">多個用逗號隔開。留言裡「有包含」就算，例如「我要新鮮!!」也會觸發。</div>
@@ -228,6 +256,14 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           <select id="reTemplate"></select>
           <div class="hint">要改範本的內容，到上面的「✉️ 私訊範本」分頁改。</div>
         </div>
+        <div class="field">
+          <label class="l">什麼時候開始、結束（選填）</label>
+          <div class="sched">
+            <div><div class="hint" style="margin:0 0 4px">開始（空白＝儲存後馬上開始）</div><input type="datetime-local" id="reStart"></div>
+            <div><div class="hint" style="margin:0 0 4px">結束（空白＝一直回覆）</div><input type="datetime-local" id="reEnd"></div>
+          </div>
+          <div class="hint">團購檔期結束時間填進去，時間到就自動停，不用記得回來關。</div>
+        </div>
         <div class="field" id="reCooldownField">
           <label class="l">同一個人多久內不重複回</label>
           <div style="display:flex;gap:8px;align-items:center"><input type="number" id="reCooldown" min="0" value="24" style="width:90px"> <span style="font-size:13px">小時</span></div>
@@ -239,6 +275,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" onclick="saveRule()">儲存</button>
           <button class="btn ghost" onclick="closeRule()">取消</button>
+          <button class="btn small danger hidden" id="reDel" style="margin-left:auto" onclick="delRule()">刪除這條規則</button>
         </div>
         <div class="err" id="reErr"></div>
       </div>
@@ -353,32 +390,82 @@ function tab(t) {
 function renderAll() { renderRules(); renderTpls(); renderReplies(); }
 
 /* ---------- 規則 ---------- */
-function ruleStats(id) {
-  if (!D.events) return '';
-  const c = k => D.events.filter(e => e.rule_id === id && e.kind === k).length;
-  return `觸發 ${c('trigger')}・私訊 ${c('dm')}・點連結 ${c('click')}・重複略過 ${c('dup')}${c('follow_no') ? `・沒追蹤 ${c('follow_no')}` : ''}${c('error') ? `・<span style="color:var(--danger)">錯誤 ${c('error')}</span>` : ''}`;
+// 每條規則的數據（最近 30 天）
+function ruleNums(id) {
+  if (!D.events) return null;
+  const ev = D.events.filter(e => e.rule_id === id);
+  const users = k => new Set(ev.filter(e => e.kind === k).map(e => e.user_id));
+  const sent = ev.filter(e => e.kind === 'dm' && e.trigger !== 'button').length;
+  const sentU = users('dm'), clickU = users('click'), no = users('follow_no'), yes = users('follow_yes');
+  return {
+    trig: ev.filter(e => e.kind === 'trigger').length,
+    sent,
+    rate: sentU.size ? Math.round(clickU.size / sentU.size * 100) + '%' : '–',
+    stuck: [...no].filter(u => !yes.has(u)).length,
+    won: [...no].filter(u => yes.has(u)).length,
+    err: ev.filter(e => e.kind === 'error').length,
+  };
+}
+const TRIG_S = { comment: '貼文留言', story: '限動回覆', dm: '私訊' };
+function fmtT(t) {
+  const d = new Date(t);
+  const h = d.getHours();
+  return `${d.getMonth() + 1}/${d.getDate()} ${h < 12 ? '上午' : '下午'}${String(h % 12 || 12).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function ruleGate(r) {
+  const t = D.templates.find(x => x.id === r.first_template_id);
+  return !!t && (t.buttons || []).some(b => b.type === 'gate');
+}
+function ruleCard(r) {
+  const now = Date.now();
+  const n = ruleNums(r.id);
+  const tags = [`<span class="pill">${TRIG_S[r.trigger]}</span>`];
+  if (ruleGate(r)) tags.push('<span class="pill gate">追蹤才給</span>');
+  if (!r.active) tags.push('<span class="pill pause">暫停中</span>');
+  else if (r.starts_at && new Date(r.starts_at) > now) tags.push(`<span class="pill wait">還沒開始・${fmtT(r.starts_at)} 起</span>`);
+  else if (r.ends_at && new Date(r.ends_at) <= now) tags.push('<span class="pill end">已結束</span>');
+  else if (r.ends_at) tags.push(`<span class="pill time">到 ${fmtT(r.ends_at)}</span>`);
+  const warn = [];
+  if (!r.first_template_id) warn.push('還沒設定私訊內容');
+  if (r.trigger === 'comment' && !r.media_id) warn.push('沒有鎖定貼文，所有貼文都會觸發');
+  if (!r.any_text && !(r.keywords || []).length) warn.push('沒有關鍵字');
+  if (n && n.err) warn.push(`有 ${n.err} 筆送出失敗，到「紀錄」看原因`);
+  const target = r.media_id ? '' : (r.trigger === 'dm' ? '私訊' : (r.trigger === 'story' ? '全部限動' : '全部貼文'));
+  return `<div class="rc ${r.active && !(r.ends_at && new Date(r.ends_at) <= now) ? '' : 'off'}">
+    <div class="top">
+      <div class="th" style="${r.media_thumb ? `background-image:url('${esc(r.media_thumb)}')` : ''}">${r.media_thumb ? '' : target}</div>
+      <div style="min-width:0"><h3>${esc(r.name)}</h3><div class="tags">${tags.join('')}</div></div>
+    </div>
+    <div class="kwl">關鍵字：${r.any_text ? '任何內容' : esc((r.keywords || []).join('、'))}${!r.any_text && r.fuzzy !== false ? ' <span style="color:var(--muted)">（含同音字）</span>' : ''}</div>
+    ${warn.length ? `<div class="warn">⚠️ ${warn.join('；')}</div>` : ''}
+    <div class="nums">${n ? `<span>觸發<b>${n.trig}</b></span><span>已送<b>${n.sent}</b></span><span>點擊率<b>${n.rate}</b></span><span>卡在追蹤<b>${n.stuck}</b></span><span>因此追蹤<b>${n.won}</b></span>` : '數據讀取中…'}</div>
+    <div class="acts3">
+      <button class="btn small ghost" onclick="toggleRule(${r.id})">${r.active ? '暫停' : '啟用'}</button>
+      <button class="btn small ghost" onclick="copyRule(${r.id})">複製</button>
+      <button class="btn small ghost" onclick="editRule(${r.id})">編輯</button>
+    </div>
+  </div>`;
 }
 function renderRules() {
-  const tpl = id => D.templates.find(t => t.id === id);
   $('ruleList').innerHTML = `<div class="card">
-    <div class="row-head"><div><h2>觸發規則</h2><div class="sub" style="margin:0">每條規則可以鎖定一篇貼文或一則限動，別篇出現一樣的字不會亂觸發</div></div>
+    <div class="row-head"><div><h2>觸發規則</h2><div class="sub" style="margin:0">每條規則可以鎖定一篇貼文或一則限動，別篇出現一樣的字不會亂觸發。數據是最近 30 天。</div></div>
     <button class="btn" onclick="editRule()">＋ 新增規則</button></div>
-    ${D.rules.length ? D.rules.map(r => `<div class="rule">
-      <div class="thumb" style="${r.media_thumb ? `background-image:url('${esc(r.media_thumb)}')` : ''}">${r.media_thumb ? '' : (r.trigger === 'dm' ? '私訊' : '全部')}</div>
-      <div class="body">
-        <div class="name">${esc(r.name)} <span class="tag">${TRIG[r.trigger]}</span>${r.active ? '' : '<span class="tag off">暫停中</span>'}</div>
-        <div class="stats">${r.media_id ? esc(r.media_label || '') : (r.trigger === 'dm' ? '所有私訊' : '全部' + (r.trigger === 'story' ? '限動' : '貼文'))}　→　${esc(tpl(r.first_template_id)?.name || '（沒選私訊範本）')}</div>
-        <div class="kws">${(r.keywords || []).map(k => `<span class="kw">${esc(k)}</span>`).join('')}${r.fuzzy !== false ? '<span class="kw" style="background:none">＋同音</span>' : ''}</div>
-        <div class="stats" id="rs-${r.id}">${ruleStats(r.id)}</div>
-      </div>
-      <div class="acts">
-        <button class="btn small ghost" onclick="toggleRule(${r.id})">${r.active ? '暫停' : '恢復'}</button>
-        <button class="btn small ghost" onclick="editRule(${r.id})">編輯</button>
-        <button class="btn small danger" onclick="delRow('ar_rules', ${r.id})">刪除</button>
-      </div>
-    </div>`).join('') : '<div class="empty">還沒有規則。先到「私訊範本」建一則訊息，再回來新增規則</div>'}
+    ${D.rules.length ? `<div class="rcards">${D.rules.map(ruleCard).join('')}</div>` : '<div class="empty">還沒有規則，按「＋ 新增規則」開始</div>'}
   </div>`;
-  if (!D.events) api('events').then(j => { D.events = j.events; D.rules.forEach(r => { const el = $('rs-' + r.id); if (el) el.innerHTML = ruleStats(r.id); }); }).catch(() => {});
+  if (!D.events) api('events').then(j => { D.events = j.events; renderRules(); }).catch(() => {});
+}
+// 複製：同一套訊息換一篇貼文用
+function copyRule(id) {
+  const r = D.rules.find(x => x.id === id);
+  editRule(null, { ...r, id: null, name: r.name + '（複製）', media_id: null, media_label: null, media_thumb: null, active: true, flow: { mode: 'tpl' } });
+}
+async function delRule() {
+  if (!D.edit?.id || !confirm('確定刪除這條規則？（私訊範本會保留）')) return;
+  try {
+    await api('delete', { table: 'ar_rules', id: D.edit.id });
+    D.rules = D.rules.filter(x => x.id !== D.edit.id);
+    closeRule(true); renderRules();
+  } catch (e) { alert(e.message); }
 }
 
 function segBind(id, cb) {
@@ -402,6 +489,9 @@ function ruleForm() {
     first_template_id: +$('reTemplate').value || null,
     cooldown_hours: Math.max(0, parseInt($('reCooldown').value) || 0),
     active: $('reActive').checked,
+    any_text: $('reAny').checked,
+    starts_at: $('reStart').value ? new Date($('reStart').value).toISOString() : null,
+    ends_at: $('reEnd').value ? new Date($('reEnd').value).toISOString() : null,
     flow: flowForm(),
   };
 }
@@ -469,21 +559,39 @@ function checkFlow(f) {
   return '';
 }
 
+function toLocal(t) {
+  if (!t) return '';
+  const d = new Date(t), p = x => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function syncAny() {
+  const a = $('reAny').checked;
+  $('reKeywords').disabled = a; $('reFuzzy').disabled = a;
+  $('reKeywords').style.opacity = $('reFuzzy').parentElement.style.opacity = a ? .45 : 1;
+}
+$('reAny').addEventListener('change', () => { syncAny(); ruleDraft(); });
+['reStart', 'reEnd'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
+
 function ruleDirty() { return !!D.edit && D.edit.snap !== undefined && JSON.stringify(ruleForm()) !== D.edit.snap; }
 function ruleDraft() { if (D.edit && D.edit.snap !== undefined) store('ar_draft_rule', ruleForm()); }
-function editRule(id) {
+function editRule(id, preset) {
   if (ruleDirty() && !confirm('正在編輯的規則還沒儲存，確定要放棄嗎？')) return;
-  let r = id ? D.rules.find(x => x.id === id) : { trigger: 'comment', keywords: [], fuzzy: true, public_reply_ids: [], cooldown_hours: 24, active: true };
+  let r = preset || (id ? D.rules.find(x => x.id === id) : { trigger: 'comment', keywords: [], fuzzy: true, public_reply_ids: [], cooldown_hours: 24, active: true });
   const dr = load('ar_draft_rule');
   let fromDraft = false;
   if (dr && (dr.id || null) === (id || null) && (dr.name || dr.keywords.length) && confirm('上次有還沒儲存的規則，要接回來繼續編輯嗎？')) { r = { ...r, ...dr, id: r.id }; fromDraft = true; }
   else { try { localStorage.removeItem('ar_draft_rule'); } catch (e) {} }
   D.edit = { ...r };
-  $('reTitle').textContent = id ? '編輯規則' : '新增規則';
+  $('reTitle').textContent = id ? '編輯規則' : (preset ? '複製規則（記得換一篇貼文）' : '新增規則');
   $('reName').value = r.name || '';
   segSet('reTrigger', r.trigger);
   $('reKeywords').value = (r.keywords || []).join(', ');
   $('reFuzzy').checked = r.fuzzy !== false;
+  $('reAny').checked = !!r.any_text;
+  $('reStart').value = toLocal(r.starts_at);
+  $('reEnd').value = toLocal(r.ends_at);
+  $('reDel').classList.toggle('hidden', !id);
+  syncAny();
   $('reCooldown').value = r.cooldown_hours ?? 24;
   $('reActive').checked = r.active !== false;
   $('reTemplate').innerHTML = '<option value="">（選一個私訊範本）</option>' + D.templates.map(t => `<option value="${t.id}" ${t.id === r.first_template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
@@ -542,9 +650,10 @@ async function saveRule() {
   const row = ruleForm();
   const flow = row.flow; delete row.flow;
   if (!row.id) delete row.id;
+  if (row.starts_at && row.ends_at && row.ends_at <= row.starts_at) return $('reErr').textContent = '結束時間要比開始時間晚';
   if (flow.mode === 'write') {
     if (!row.name) return $('reErr').textContent = '幫規則取個名字';
-    if (!row.keywords.length) return $('reErr').textContent = '至少要一個關鍵字';
+    if (!row.keywords.length && !row.any_text) return $('reErr').textContent = '至少要一個關鍵字（或勾「任何內容都觸發」）';
     const err = checkFlow(flow);
     if (err) return $('reErr').textContent = err;
     if (row.trigger === 'comment' && !row.media_id && !confirm('沒有鎖定貼文，所有貼文出現這些字都會觸發，確定嗎？')) return;
@@ -553,7 +662,7 @@ async function saveRule() {
     renderTpls();
   }
   if (!row.name) return $('reErr').textContent = '幫規則取個名字';
-  if (!row.keywords.length) return $('reErr').textContent = '至少要一個關鍵字';
+  if (!row.keywords.length && !row.any_text) return $('reErr').textContent = '至少要一個關鍵字（或勾「任何內容都觸發」）';
   if (!row.first_template_id) return $('reErr').textContent = '選一個私訊範本，或改用「直接在這裡寫」';
   if (flow.mode !== 'write' && row.trigger === 'comment' && !row.media_id && !confirm('沒有鎖定貼文，所有貼文出現這些字都會觸發，確定嗎？')) return;
   try {
