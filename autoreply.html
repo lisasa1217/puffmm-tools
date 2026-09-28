@@ -127,6 +127,11 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   }
   body select:hover { background-color: #fff1dc !important; }
   .bt .mv { display:flex; gap:6px; }
+  body input[type=date], body input[type=time] {
+    width:100%; padding:9px 10px; font-size:14px; font-family:inherit; color:#6a5153; background:#fffdf2; border:0; cursor:pointer;
+    box-shadow: 0 -2px 0 0 #6a5153, 0 2px 0 0 #6a5153, -2px 0 0 0 #6a5153, 2px 0 0 0 #6a5153; margin:2px; outline:none;
+  }
+  body input[type=date]:focus, body input[type=time]:focus { box-shadow: 0 -2px 0 0 #f6b3c8, 0 2px 0 0 #f6b3c8, -2px 0 0 0 #f6b3c8, 2px 0 0 0 #f6b3c8; }
   .flow { border-left: 4px solid #f6b3c8; padding: 4px 0 4px 16px; margin: 0 0 18px 6px; }
   .flow h3 { font-size: 14.5px; margin-bottom: 8px; }
   .flow h3 .no { display:inline-block; min-width:26px; height:26px; line-height:26px; text-align:center; background:#f6b3c8; color:#fff; margin-right:6px; font-size:13px; }
@@ -151,7 +156,9 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   .rc .nums { display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color: var(--muted); padding-bottom:10px; border-bottom:1px dashed #d9cbbd; }
   .rc .nums b { color:#5f4649; font-size:14px; margin-left:3px; }
   .rc .acts3 { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
-  .sched { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  .sched { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+  .dt { display:grid; grid-template-columns: 1.3fr 1fr auto; gap:8px; align-items:center; }
+  .dt input { min-width:0; }
   @media (max-width: 800px) {
     .rcards { grid-template-columns: 1fr; }
     .tabs { position:fixed; left:0; right:0; bottom:0; z-index:40; margin:0 !important; background:#fffdf4; padding:6px 6px calc(6px + env(safe-area-inset-bottom)) !important;
@@ -160,6 +167,8 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
     .tabs .chip.on { background:#fde2ea; }
     .wrap { padding-bottom: 90px !important; }
     .sched { grid-template-columns: 1fr; }
+    .dt { grid-template-columns: 1fr auto; }
+    .dt input[type=date] { grid-column: 1 / -1; }
   }
   @media (max-width: 800px) { .link-row { grid-template-columns: 1fr; } }
 </style>
@@ -257,20 +266,31 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           <div class="hint">要改範本的內容，到上面的「✉️ 私訊範本」分頁改。</div>
         </div>
         <div class="field">
-          <label class="l">什麼時候開始、結束（選填）</label>
+          <label class="l">⏰ 自動排程（選填）：只在這段時間內回覆</label>
           <div class="sched">
-            <div><div class="hint" style="margin:0 0 4px">開始（空白＝儲存後馬上開始）</div><input type="datetime-local" id="reStart"></div>
-            <div><div class="hint" style="margin:0 0 4px">結束（空白＝一直回覆）</div><input type="datetime-local" id="reEnd"></div>
+            <div>
+              <div class="hint" style="margin:0 0 4px">從什麼時候開始（不填＝馬上開始）</div>
+              <div class="dt"><input type="date" id="reStartD"><input type="time" id="reStartT"><button class="btn small ghost" onclick="clearDT('reStart')">清除</button></div>
+            </div>
+            <div>
+              <div class="hint" style="margin:0 0 4px">到什麼時候結束（不填＝一直回覆）</div>
+              <div class="dt"><input type="date" id="reEndD"><input type="time" id="reEndT"><button class="btn small ghost" onclick="clearDT('reEnd')">清除</button></div>
+            </div>
           </div>
-          <div class="hint">團購檔期結束時間填進去，時間到就自動停，不用記得回來關。</div>
+          <div class="hint">例如團購 10/1 開團、10/5 結團就填進去，時間到自動開始、自動停止，不用記得回來開關。</div>
         </div>
         <div class="field" id="reCooldownField">
           <label class="l">同一個人多久內不重複回</label>
           <div style="display:flex;gap:8px;align-items:center"><input type="number" id="reCooldown" min="0" value="24" style="width:90px"> <span style="font-size:13px">小時</span></div>
         </div>
         <div class="field">
-          <label class="check"><input type="checkbox" id="reActive" checked> 開始自動回覆</label>
-          <div class="hint">打勾＝這條規則會自動回覆客人。取消打勾＝先暫停（規則會保留，之後在列表按「恢復」就能再開）。</div>
+          <label class="l">狀態</label>
+          <div class="seg" id="reState" style="max-width:360px">
+            <button data-v="on" class="on">▶️ 開啟</button>
+            <button data-v="off">⏸ 暫停</button>
+          </div>
+          <div class="hint">手動開關：想臨時停掉（例如連結貼錯）就選暫停，規則會保留。開啟＋有排程＝只在排程時間內回覆。</div>
+          <input type="checkbox" id="reActive" checked hidden>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" onclick="saveRule()">儲存</button>
@@ -488,10 +508,10 @@ function ruleForm() {
     public_reply_ids: [...$('rePublic').querySelectorAll('input:checked')].map(x => +x.value),
     first_template_id: +$('reTemplate').value || null,
     cooldown_hours: Math.max(0, parseInt($('reCooldown').value) || 0),
-    active: $('reActive').checked,
+    active: segVal('reState') === 'on',
     any_text: $('reAny').checked,
-    starts_at: $('reStart').value ? new Date($('reStart').value).toISOString() : null,
-    ends_at: $('reEnd').value ? new Date($('reEnd').value).toISOString() : null,
+    starts_at: getDT('reStart', '00:00'),
+    ends_at: getDT('reEnd', '23:59'),
     flow: flowForm(),
   };
 }
@@ -570,7 +590,20 @@ function syncAny() {
   $('reKeywords').style.opacity = $('reFuzzy').parentElement.style.opacity = a ? .45 : 1;
 }
 $('reAny').addEventListener('change', () => { syncAny(); ruleDraft(); });
-['reStart', 'reEnd'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
+// 日期、時間分兩格；只填日期時，開始＝當天 00:00、結束＝當天 23:59
+function setDT(p, t) {
+  const v = toLocal(t);
+  $(p + 'D').value = v ? v.slice(0, 10) : '';
+  $(p + 'T').value = v ? v.slice(11, 16) : '';
+}
+function getDT(p, defTime) {
+  const d = $(p + 'D').value;
+  if (!d) return null;
+  return new Date(`${d}T${$(p + 'T').value || defTime}`).toISOString();
+}
+function clearDT(p) { $(p + 'D').value = ''; $(p + 'T').value = ''; ruleDraft(); }
+['reStartD', 'reStartT', 'reEndD', 'reEndT'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
+segBind('reState', () => { $('reActive').checked = segVal('reState') === 'on'; ruleDraft(); });
 
 function ruleDirty() { return !!D.edit && D.edit.snap !== undefined && JSON.stringify(ruleForm()) !== D.edit.snap; }
 function ruleDraft() { if (D.edit && D.edit.snap !== undefined) store('ar_draft_rule', ruleForm()); }
@@ -588,8 +621,9 @@ function editRule(id, preset) {
   $('reKeywords').value = (r.keywords || []).join(', ');
   $('reFuzzy').checked = r.fuzzy !== false;
   $('reAny').checked = !!r.any_text;
-  $('reStart').value = toLocal(r.starts_at);
-  $('reEnd').value = toLocal(r.ends_at);
+  setDT('reStart', r.starts_at);
+  setDT('reEnd', r.ends_at);
+  segSet('reState', r.active !== false ? 'on' : 'off');
   $('reDel').classList.toggle('hidden', !id);
   syncAny();
   $('reCooldown').value = r.cooldown_hours ?? 24;
