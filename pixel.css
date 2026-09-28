@@ -4,6 +4,7 @@
    靠覆寫同名 CSS 變數 + 幾個共用元件，把整站變成像素風。
    ⚠️ 路由要有 { "handle": "filesystem" }，這個檔案才抓得到（見 vercel.json）
    ========================================================== */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
 @font-face {
   font-family: 'Cubic 11';
   src: url('/fonts/Cubic_11.woff2') format('woff2');
@@ -43,8 +44,15 @@ canvas, img { image-rendering: auto; }
 
 html { font-size: 14px; }
 body, button, input, select, textarea {
+  font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif !important;
+  letter-spacing: 0.01em;
+}
+button, .btn, .tab, .go { font-weight: 500; }
+h1, h2, h3, .app-win h3, header h1 { font-weight: 700 !important; }
+/* 像素字型只用在裝飾用的短英文（檔名、START、狀態列、等級），中文一律好讀字型 */
+.tb, .taskbar .name, .go, .start, .status, .lv, .cur, .wbtns b, header span, .tank .tb .msg {
   font-family: 'Cubic 11', 'Noto Sans TC', monospace !important;
-  letter-spacing: 0.02em;
+  font-weight: 400 !important;
 }
 body {
   color: var(--text) !important;

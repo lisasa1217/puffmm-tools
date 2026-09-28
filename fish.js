@@ -286,6 +286,7 @@
 
   updateUI(); defaultMsg(); newTarget();
   fish.x = Math.random() * (W * 0.5); fish.y = 14;
+  draw();   // 先畫第一幀，避免等 rAF 之前（或分頁在背景時）水缸是空白
 
   var last = performance.now(), acc = 0, hungerT = 0;
   function loop(now) {
