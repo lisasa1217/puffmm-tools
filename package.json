@@ -1,0 +1,7 @@
+{
+  "name": "puffmm-tools",
+  "private": true,
+  "dependencies": {
+    "pinyin-pro": "^3.26.0"
+  }
+}

@@ -1,0 +1,71 @@
+-- IG 自動回覆系統（泡芙與媽工具箱）
+-- 全部資料表開 RLS 且不給任何 policy：只有伺服器（service key）讀得到，網頁的 anon key 碰不到
+
+create table if not exists ar_templates (
+  id bigint generated always as identity primary key,
+  name text not null,
+  text text default '',
+  image_url text,
+  buttons jsonb default '[]',          -- [{type:'url'|'next'|'gate', title, url?, next?, fail?}]
+  created_at timestamptz default now()
+);
+
+create table if not exists ar_public_replies (
+  id bigint generated always as identity primary key,
+  text text not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists ar_rules (
+  id bigint generated always as identity primary key,
+  name text not null,
+  trigger text not null check (trigger in ('comment','story','dm')),
+  media_id text,                        -- 空白＝全部貼文／全部限動
+  media_label text,
+  media_thumb text,
+  keywords text[] default '{}',
+  fuzzy boolean default true,           -- 同音錯字也算
+  public_reply_ids bigint[] default '{}',
+  first_template_id bigint references ar_templates(id) on delete set null,
+  cooldown_hours int default 24,        -- 限動／私訊：同一人多久內不重複回
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+create table if not exists ar_sent (
+  rule_id bigint references ar_rules(id) on delete cascade,
+  user_id text not null,
+  sent_at timestamptz default now(),
+  primary key (rule_id, user_id)
+);
+
+create table if not exists ar_events (
+  id bigint generated always as identity primary key,
+  created_at timestamptz default now(),
+  rule_id bigint,
+  user_id text,
+  username text,
+  trigger text,
+  kind text,          -- trigger / dup / public_reply / dm / button / follow_yes / follow_no / click / error
+  keyword text,
+  detail text
+);
+create index if not exists ar_events_created on ar_events (created_at desc);
+
+create table if not exists app_secrets (
+  key text primary key,
+  value text,
+  updated_at timestamptz default now()
+);
+
+alter table ar_templates enable row level security;
+alter table ar_public_replies enable row level security;
+alter table ar_rules enable row level security;
+alter table ar_sent enable row level security;
+alter table ar_events enable row level security;
+alter table app_secrets enable row level security;
+
+-- 預設公開回覆庫
+insert into ar_public_replies (text) values
+  ('已私訊你囉 💌'), ('快去收私訊～ 📩'), ('傳過去了喔 🙌'), ('私訊給你啦，記得看一下 💛'), ('收到！去私訊找找 ✨')
+on conflict do nothing;

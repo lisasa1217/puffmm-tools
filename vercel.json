@@ -2,6 +2,9 @@
   "functions": {
     "api/ig.js": {
       "maxDuration": 60
+    },
+    "api/ar-hook.js": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -33,6 +36,10 @@
     {
       "src": "^/privacy/?$",
       "dest": "/privacy.html"
+    },
+    {
+      "src": "^/autoreply/?$",
+      "dest": "/autoreply.html"
     },
     {
       "src": "^/(.*)$",

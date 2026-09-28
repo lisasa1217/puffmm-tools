@@ -1,0 +1,552 @@
+<!--
+==========================================================
+  IG 自動回覆 — 給 Claude 讀的說明
+==========================================================
+後台頁。資料都走 /api/ar-admin（要 x-pass = AR_ADMIN_PASS），
+伺服器用 SUPABASE_SERVICE_KEY 讀寫 Supabase（ar_* 表，RLS 全關給 anon）。
+IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記點擊。
+資料表定義：sql/autoreply.sql
+==========================================================
+-->
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IG 自動回覆</title>
+<style>
+  :root {
+    --bg: #fffae0; --surface: #ffffff; --surface2: #fff5c8; --border: #f0d96e;
+    --accent: #1e5929; --accent2: #fbcd2c; --text: #1a2e10; --muted: #7a8c3a; --danger: #e05555;
+    --ok-bg: #e2f2e4; --warn-bg: #ffe9d6; --warn: #b4540a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  a { color: inherit; }
+  button { font-family: inherit; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; gap: 14px; background: var(--surface); }
+  header a.home { display:flex; align-items:center; gap:14px; text-decoration:none; color:inherit; }
+  .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  header h1 { font-size: 16px; font-weight: 500; letter-spacing: 0.08em; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 20px 80px; }
+  .hidden { display:none !important; }
+
+  .tabs { display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap; padding:6px; }
+  .chip { padding:7px 14px; border:1px solid var(--border); background: var(--surface); font-size:13px; font-weight:700; color: var(--muted); cursor:pointer; }
+  .chip.on { background: var(--surface2); color: var(--text); }
+
+  .card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 14px; padding: 20px; }
+  .card + .card { margin-top: 14px; }
+  .card h2 { font-size: 16px; margin-bottom: 4px; }
+  .sub { font-size: 12.5px; color: var(--muted); line-height:1.55; margin-bottom: 14px; }
+  .row-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+
+  .btn { padding:11px 16px; background: var(--accent); color: var(--accent2); border:none; border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; }
+  .btn.ghost { background: var(--surface); color: var(--accent); border:1.5px solid var(--accent); }
+  .btn.small { padding:6px 11px; font-size:12.5px; }
+  .btn.danger { background: var(--surface); color: var(--danger); border:1.5px solid var(--danger); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+
+  label.l { display:block; font-size:12.5px; font-weight:700; color: var(--muted); margin-bottom:6px; }
+  input[type=text], input[type=number], input[type=url], textarea, select {
+    width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:10px;
+    font-size:14px; font-family:inherit; background: var(--surface2); color: var(--text); outline:none;
+  }
+  textarea { resize: vertical; min-height: 140px; line-height:1.6; }
+  .field { margin-bottom: 16px; }
+  .hint { font-size:11.5px; color: var(--muted); margin-top:5px; line-height:1.55; }
+  .check { display:flex; gap:8px; align-items:center; font-size:13.5px; cursor:pointer; }
+  .check input { width:16px; height:16px; accent-color: var(--accent); }
+  .seg { display:flex; gap:3px; padding:3px; background: var(--surface2); border:1.5px solid var(--border); border-radius:10px; }
+  .seg button { flex:1; border:none; background:transparent; padding:8px 6px; font-size:13px; font-weight:700; color: var(--muted); cursor:pointer; border-radius:7px; }
+  .seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+  .rule { display:flex; gap:14px; align-items:flex-start; }
+  .rule + .rule { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+  .thumb { width:64px; height:64px; background: var(--surface2) center/cover no-repeat; flex-shrink:0; border:1.5px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:12px; color: var(--muted); text-align:center; }
+  .rule .body { flex:1; min-width:0; }
+  .rule .name { font-weight:800; font-size:15px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .tag { font-size:11px; font-weight:700; padding:2px 8px; background: var(--surface2); border:1px solid var(--border); color: var(--text); }
+  .tag.off { background:#eee; color:#888; border-color:#ccc; }
+  .kws { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0; }
+  .kw { font-size:12px; padding:2px 8px; background: var(--ok-bg); color: var(--accent); }
+  .stats { font-size:12px; color: var(--muted); }
+  .rule .acts { display:flex; gap:6px; flex-wrap:wrap; }
+
+  .picker { display:grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap:10px; max-height: 360px; overflow:auto; padding:4px; }
+  .pk { border:1.5px solid var(--border); background: var(--surface); cursor:pointer; text-align:left; padding:0; }
+  .pk.on { outline: 3px solid var(--accent); }
+  .pk .im { aspect-ratio:1; background: var(--surface2) center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-size:12px; color: var(--muted); }
+  .pk .lb { font-size:11px; padding:5px 6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+
+  .bt { display:grid; grid-template-columns: 130px 1fr; gap:8px; padding:12px; background: var(--surface2); margin-bottom:8px; border:1px solid var(--border); }
+  .bt .full { grid-column: 1 / -1; }
+  .bt .x { justify-self:end; }
+
+  .phone { background:#fff; border:1.5px solid var(--border); padding:16px; max-width: 340px; }
+  .bubble { background:#efefef; border-radius:18px !important; padding:10px 14px; font-size:14px; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#111; }
+  .bubble .bb { display:block; margin-top:8px; background:#fff; border-radius:10px !important; padding:9px; text-align:center; font-weight:700; font-size:13.5px; }
+  .pv-img { width:100%; border-radius:14px !important; margin-bottom:6px; display:block; }
+
+  .grid2 { display:grid; grid-template-columns: 1fr 340px; gap:18px; align-items:start; }
+
+  .reply { display:flex; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:14px; }
+  .reply span { flex:1; }
+
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { text-align:left; padding:7px 6px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color: var(--muted); font-size:11.5px; }
+  td.k { white-space:nowrap; }
+  .kind { font-size:11px; font-weight:700; padding:1px 7px; white-space:nowrap; }
+  .kind.error { background:#fde2e2; color: var(--danger); }
+  .kind.dup { background:#eee; color:#777; }
+  .kind.click, .kind.follow_yes { background: var(--ok-bg); color: var(--accent); }
+  .kind.follow_no { background: var(--warn-bg); color: var(--warn); }
+  .kind.trigger, .kind.dm, .kind.public_reply, .kind.button { background: var(--surface2); }
+
+  .notice { background:#fff3a8; border:1px solid var(--accent2); padding:12px 14px; font-size:13px; line-height:1.6; margin-bottom:16px; }
+  .err { color: var(--danger); font-size:12.5px; margin-top:8px; }
+  .empty { text-align:center; color: var(--muted); font-size:13px; padding:24px 0; }
+  .pass-box { max-width:360px; margin:60px auto; }
+
+  @media (max-width: 800px) {
+    header { padding: 14px 16px; }
+    .wrap { padding: 16px 12px 60px; }
+    .grid2 { grid-template-columns: 1fr; }
+    .bt { grid-template-columns: 1fr; }
+    .rule { flex-wrap: wrap; }
+  }
+</style>
+<link rel="stylesheet" href="/pixel.css">
+<script src="/pixel.js"></script>
+</head>
+<body>
+
+<header>
+  <a class="home" href="/"><div class="logo-dot"></div><h1>IG 自動回覆</h1></a>
+</header>
+
+<div class="wrap">
+  <div id="passBox" class="card pass-box hidden">
+    <h2>請輸入後台密碼</h2>
+    <div class="sub">輸入一次後這台裝置會記住</div>
+    <div class="field"><input type="text" id="passInput" placeholder="密碼" onkeydown="if(event.key==='Enter')submitPass()"></div>
+    <button class="btn" onclick="submitPass()">進入</button>
+    <div class="err" id="passErr"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button class="chip on" data-tab="rules" onclick="tab('rules')">⚡ 觸發規則</button>
+      <button class="chip" data-tab="tpls" onclick="tab('tpls')">✉️ 私訊範本</button>
+      <button class="chip" data-tab="replies" onclick="tab('replies')">💬 公開回覆庫</button>
+      <button class="chip" data-tab="log" onclick="tab('log')">📊 紀錄</button>
+    </div>
+
+    <section id="v-rules">
+      <div id="ruleList"></div>
+      <div id="ruleEdit" class="card hidden">
+        <h2 id="reTitle">新增規則</h2>
+        <div class="sub">客人留言／回覆限動／私訊裡出現關鍵字，就自動回覆</div>
+        <div class="field"><label class="l">規則名稱（自己看的）</label><input type="text" id="reName" placeholder="例如：韓國草莓團"></div>
+        <div class="field">
+          <label class="l">什麼時候觸發</label>
+          <div class="seg" id="reTrigger">
+            <button data-v="comment" class="on">💬 貼文留言</button>
+            <button data-v="story">📱 限動回覆</button>
+            <button data-v="dm">✉️ 私訊</button>
+          </div>
+        </div>
+        <div class="field" id="reTargetField">
+          <label class="l" id="reTargetLabel">哪一篇貼文</label>
+          <div class="picker" id="rePicker"></div>
+          <div class="hint" id="reTargetHint"></div>
+        </div>
+        <div class="field">
+          <label class="l">關鍵字</label>
+          <input type="text" id="reKeywords" placeholder="新鮮, fresh, +1">
+          <label class="check" style="margin-top:8px"><input type="checkbox" id="reFuzzy" checked> 同音錯字也算（例如「新先」「心鮮」＝新鮮）</label>
+          <div class="hint">多個用逗號隔開。留言裡「有包含」就算，例如「我要新鮮!!」也會觸發。</div>
+        </div>
+        <div class="field" id="rePublicField">
+          <label class="l">留言底下公開回覆（從勾選的句子隨機挑一句）</label>
+          <div id="rePublic"></div>
+          <div class="hint">都不勾＝不公開回覆，只私訊</div>
+        </div>
+        <div class="field">
+          <label class="l">私訊內容</label>
+          <select id="reTemplate"></select>
+          <div class="hint" id="reTplHint"></div>
+        </div>
+        <div class="field" id="reCooldownField">
+          <label class="l">同一個人多久內不重複回</label>
+          <div style="display:flex;gap:8px;align-items:center"><input type="number" id="reCooldown" min="0" value="24" style="width:90px"> <span style="font-size:13px">小時</span></div>
+        </div>
+        <div class="field"><label class="check"><input type="checkbox" id="reActive" checked> 啟用這條規則</label></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" onclick="saveRule()">儲存</button>
+          <button class="btn ghost" onclick="closeRule()">取消</button>
+        </div>
+        <div class="err" id="reErr"></div>
+      </div>
+    </section>
+
+    <section id="v-tpls" class="hidden">
+      <div id="tplList"></div>
+      <div id="tplEdit" class="card hidden">
+        <h2 id="teTitle">新增私訊範本</h2>
+        <div class="sub">存起來之後，每條規則都能直接選，不用重打</div>
+        <div class="grid2">
+          <div>
+            <div class="field"><label class="l">範本名稱（自己看的）</label><input type="text" id="teName" placeholder="例如：KC SKIN 面膜介紹"></div>
+            <div class="field">
+              <label class="l">訊息文字</label>
+              <textarea id="teText" placeholder="✨ KC SKIN 水凝多泌面膜 (~10/5)&#10;十月精華液就漲價囉～把握！"></textarea>
+              <div class="hint"><span id="teCount">0</span> / 640 字（有按鈕時 IG 上限 640 字）</div>
+            </div>
+            <div class="field">
+              <label class="l">圖片網址（選填）</label>
+              <input type="url" id="teImage" placeholder="https://...jpg">
+              <div class="hint">圖片會在文字前面先送出。貼文留言觸發的「第一則」私訊 IG 只准送一則，所以那一則會略過圖片。</div>
+            </div>
+            <div class="field">
+              <label class="l">按鈕（最多 3 顆，每顆最多 20 字）</label>
+              <div id="teButtons"></div>
+              <button class="btn small ghost" id="teAddBtn" onclick="addBtn()">＋ 加按鈕</button>
+            </div>
+          </div>
+          <div>
+            <label class="l">IG 預覽</label>
+            <div class="phone" id="tePreview"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" onclick="saveTpl()">儲存</button>
+          <button class="btn ghost" onclick="closeTpl()">取消</button>
+        </div>
+        <div class="err" id="teErr"></div>
+      </div>
+    </section>
+
+    <section id="v-replies" class="hidden">
+      <div class="card">
+        <h2>公開回覆庫</h2>
+        <div class="sub">觸發時從規則勾選的句子裡隨機挑一句回在留言底下，看起來比較不像機器人。可以寫 {name} 代入對方帳號。</div>
+        <div id="replyList"></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <input type="text" id="newReply" placeholder="例如：私訊給你囉 {name} 💌" onkeydown="if(event.key==='Enter')addReply()">
+          <button class="btn" style="white-space:nowrap" onclick="addReply()">新增</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="v-log" class="hidden">
+      <div class="card">
+        <div class="row-head">
+          <h2>最近 30 天紀錄</h2>
+          <select id="logRule" style="width:auto" onchange="renderLog()"></select>
+        </div>
+        <div id="logStats" class="sub"></div>
+        <div style="overflow:auto"><table><thead><tr><th>時間</th><th>事件</th><th>帳號</th><th>規則</th><th>內容</th></tr></thead><tbody id="logBody"></tbody></table></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function load(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+
+const D = { rules: [], templates: [], replies: [], events: null, media: {}, edit: null, tedit: null };
+const TRIG = { comment: '💬 貼文留言', story: '📱 限動回覆', dm: '✉️ 私訊' };
+const KIND = { trigger: '觸發', dup: '重複略過', public_reply: '公開回覆', dm: '已私訊', button: '按按鈕', follow_yes: '有追蹤', follow_no: '沒追蹤', click: '點連結', error: '錯誤' };
+
+async function api(action, body) {
+  const r = await fetch('/api/ar-admin?action=' + action, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'x-pass': load('ar_pass') || '', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let j; try { j = await r.json(); } catch (e) { throw new Error('伺服器沒有回應'); }
+  if (j.error === 'need_pass') { const e = new Error('need_pass'); e.pass = true; throw e; }
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
+async function init() {
+  try {
+    Object.assign(D, await api('all'));
+    $('passBox').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    renderAll();
+  } catch (e) {
+    if (e.pass) { $('passBox').classList.remove('hidden'); return; }
+    document.querySelector('.wrap').insertAdjacentHTML('afterbegin', `<div class="notice">⚠️ 讀不到資料：${esc(e.message)}</div>`);
+  }
+}
+function submitPass() {
+  store('ar_pass', $('passInput').value.trim());
+  $('passErr').textContent = '';
+  api('all').then(() => init()).catch(e => { $('passErr').textContent = e.pass ? '密碼不對喔' : e.message; });
+}
+
+function tab(t) {
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  ['rules', 'tpls', 'replies', 'log'].forEach(x => $('v-' + x).classList.toggle('hidden', x !== t));
+  if (t === 'log') loadLog();
+}
+function renderAll() { renderRules(); renderTpls(); renderReplies(); }
+
+/* ---------- 規則 ---------- */
+function ruleStats(id) {
+  if (!D.events) return '';
+  const c = k => D.events.filter(e => e.rule_id === id && e.kind === k).length;
+  return `觸發 ${c('trigger')}・私訊 ${c('dm')}・點連結 ${c('click')}・重複略過 ${c('dup')}${c('follow_no') ? `・沒追蹤 ${c('follow_no')}` : ''}${c('error') ? `・<span style="color:var(--danger)">錯誤 ${c('error')}</span>` : ''}`;
+}
+function renderRules() {
+  const tpl = id => D.templates.find(t => t.id === id);
+  $('ruleList').innerHTML = `<div class="card">
+    <div class="row-head"><div><h2>觸發規則</h2><div class="sub" style="margin:0">每條規則可以鎖定一篇貼文或一則限動，別篇出現一樣的字不會亂觸發</div></div>
+    <button class="btn" onclick="editRule()">＋ 新增規則</button></div>
+    ${D.rules.length ? D.rules.map(r => `<div class="rule">
+      <div class="thumb" style="${r.media_thumb ? `background-image:url('${esc(r.media_thumb)}')` : ''}">${r.media_thumb ? '' : (r.trigger === 'dm' ? '私訊' : '全部')}</div>
+      <div class="body">
+        <div class="name">${esc(r.name)} <span class="tag">${TRIG[r.trigger]}</span>${r.active ? '' : '<span class="tag off">已停用</span>'}</div>
+        <div class="stats">${r.media_id ? esc(r.media_label || '') : (r.trigger === 'dm' ? '所有私訊' : '全部' + (r.trigger === 'story' ? '限動' : '貼文'))}　→　${esc(tpl(r.first_template_id)?.name || '（沒選私訊範本）')}</div>
+        <div class="kws">${(r.keywords || []).map(k => `<span class="kw">${esc(k)}</span>`).join('')}${r.fuzzy !== false ? '<span class="kw" style="background:none">＋同音</span>' : ''}</div>
+        <div class="stats" id="rs-${r.id}">${ruleStats(r.id)}</div>
+      </div>
+      <div class="acts">
+        <button class="btn small ghost" onclick="toggleRule(${r.id})">${r.active ? '停用' : '啟用'}</button>
+        <button class="btn small ghost" onclick="editRule(${r.id})">編輯</button>
+        <button class="btn small danger" onclick="delRow('ar_rules', ${r.id})">刪除</button>
+      </div>
+    </div>`).join('') : '<div class="empty">還沒有規則。先到「私訊範本」建一則訊息，再回來新增規則</div>'}
+  </div>`;
+  if (!D.events) api('events').then(j => { D.events = j.events; D.rules.forEach(r => { const el = $('rs-' + r.id); if (el) el.innerHTML = ruleStats(r.id); }); }).catch(() => {});
+}
+
+function segBind(id, cb) {
+  $(id).querySelectorAll('button').forEach(b => b.onclick = () => { segSet(id, b.dataset.v); cb && cb(); });
+}
+function segSet(id, v) { $(id).querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.v === v)); }
+function segVal(id) { return $(id).querySelector('button.on').dataset.v; }
+segBind('reTrigger', () => { D.edit.media_id = null; D.edit.media_label = null; D.edit.media_thumb = null; syncRuleForm(); });
+
+function editRule(id) {
+  const r = id ? D.rules.find(x => x.id === id) : { trigger: 'comment', keywords: [], fuzzy: true, public_reply_ids: D.replies.map(x => x.id), cooldown_hours: 24, active: true };
+  D.edit = { ...r };
+  $('reTitle').textContent = id ? '編輯規則' : '新增規則';
+  $('reName').value = r.name || '';
+  segSet('reTrigger', r.trigger);
+  $('reKeywords').value = (r.keywords || []).join(', ');
+  $('reFuzzy').checked = r.fuzzy !== false;
+  $('reCooldown').value = r.cooldown_hours ?? 24;
+  $('reActive').checked = r.active !== false;
+  $('reTemplate').innerHTML = '<option value="">（選一個私訊範本）</option>' + D.templates.map(t => `<option value="${t.id}" ${t.id === r.first_template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+  $('rePublic').innerHTML = D.replies.length ? D.replies.map(x => `<label class="check" style="margin-bottom:6px"><input type="checkbox" value="${x.id}" ${(r.public_reply_ids || []).includes(x.id) ? 'checked' : ''}> ${esc(x.text)}</label>`).join('') : '<div class="hint">回覆庫是空的，到「公開回覆庫」新增</div>';
+  $('reErr').textContent = '';
+  $('ruleEdit').classList.remove('hidden');
+  syncRuleForm();
+  $('ruleEdit').scrollIntoView({ behavior: 'smooth' });
+}
+function closeRule() { $('ruleEdit').classList.add('hidden'); D.edit = null; }
+
+async function syncRuleForm() {
+  const t = segVal('reTrigger');
+  D.edit.trigger = t;
+  $('rePublicField').classList.toggle('hidden', t !== 'comment');
+  $('reCooldownField').classList.toggle('hidden', t === 'comment');
+  $('reTargetField').classList.toggle('hidden', t === 'dm');
+  $('reTplHint').textContent = t === 'comment'
+    ? '留言觸發的第一則私訊 IG 只准送一次：建議範本裡放一顆按鈕，客人按了才能繼續傳下一則（也才能查追蹤）。'
+    : '客人回覆限動／私訊後 24 小時內都能傳，第一則就可以放連結按鈕和圖片。';
+  $('reTargetLabel').textContent = t === 'story' ? '哪一則限動（只會列出 24 小時內的限動）' : '哪一篇貼文';
+  $('reTargetHint').textContent = t === 'story' ? '選「全部限動」＝任何一則限動被回覆都會檢查關鍵字。' : '選「全部貼文」＝任何貼文都會檢查（不建議，容易亂觸發）。';
+  if (t === 'dm') return;
+  const kind = t === 'story' ? 'stories' : 'posts';
+  $('rePicker').innerHTML = '<div class="hint">讀取中…</div>';
+  try {
+    D.media[kind] = D.media[kind] || (await api(kind)).items;
+  } catch (e) { $('rePicker').innerHTML = `<div class="err">讀不到：${esc(e.message)}</div>`; return; }
+  if (!D.edit || D.edit.trigger !== t) return;
+  const items = D.media[kind];
+  const cur = D.edit.media_id;
+  const known = !cur || items.some(i => i.id === cur);
+  $('rePicker').innerHTML =
+    `<button class="pk ${!cur ? 'on' : ''}" onclick="pickMedia(null)"><div class="im">全部${t === 'story' ? '限動' : '貼文'}</div><div class="lb">不限定</div></button>` +
+    (known ? '' : `<button class="pk on"><div class="im" style="background-image:url('${esc(D.edit.media_thumb || '')}')"></div><div class="lb">${esc(D.edit.media_label || '已選')}</div></button>`) +
+    items.map(i => `<button class="pk ${i.id === cur ? 'on' : ''}" onclick="pickMedia('${i.id}')"><div class="im" style="background-image:url('${esc(i.thumb || '')}')"></div><div class="lb">${esc(i.label || '（沒有文字）')}</div></button>`).join('') +
+    (t === 'story' && !items.length ? '<div class="hint" style="grid-column:1/-1">目前沒有 24 小時內的限動，可以先選「全部限動」</div>' : '');
+}
+function pickMedia(id) {
+  const items = D.media[D.edit.trigger === 'story' ? 'stories' : 'posts'] || [];
+  const i = items.find(x => x.id === id);
+  D.edit.media_id = id; D.edit.media_label = i ? i.label : null; D.edit.media_thumb = i ? i.thumb : null;
+  syncRuleForm();
+}
+
+async function saveRule() {
+  const e = D.edit;
+  const row = {
+    ...(e.id ? { id: e.id } : {}),
+    name: $('reName').value.trim(),
+    trigger: segVal('reTrigger'),
+    media_id: e.trigger === 'dm' ? null : e.media_id,
+    media_label: e.media_label, media_thumb: e.media_thumb,
+    keywords: $('reKeywords').value.split(/[,，、\n]/).map(s => s.trim()).filter(Boolean),
+    fuzzy: $('reFuzzy').checked,
+    public_reply_ids: [...$('rePublic').querySelectorAll('input:checked')].map(x => +x.value),
+    first_template_id: +$('reTemplate').value || null,
+    cooldown_hours: Math.max(0, parseInt($('reCooldown').value) || 0),
+    active: $('reActive').checked,
+  };
+  if (!row.name) return $('reErr').textContent = '幫規則取個名字';
+  if (!row.keywords.length) return $('reErr').textContent = '至少要一個關鍵字';
+  if (!row.first_template_id) return $('reErr').textContent = '選一個私訊範本（沒有的話先去「私訊範本」新增）';
+  if (row.trigger === 'comment' && !row.media_id && !confirm('沒有鎖定貼文，所有貼文出現這些字都會觸發，確定嗎？')) return;
+  try {
+    const { row: saved } = await api('save', { table: 'ar_rules', row });
+    const i = D.rules.findIndex(x => x.id === saved.id);
+    if (i >= 0) D.rules[i] = saved; else D.rules.unshift(saved);
+    closeRule(); renderRules();
+  } catch (err) { $('reErr').textContent = err.message; }
+}
+async function toggleRule(id) {
+  const r = D.rules.find(x => x.id === id);
+  try {
+    const { row } = await api('save', { table: 'ar_rules', row: { id, active: !r.active } });
+    Object.assign(r, row); renderRules();
+  } catch (e) { alert(e.message); }
+}
+async function delRow(table, id) {
+  if (!confirm('確定刪除？')) return;
+  try {
+    await api('delete', { table, id });
+    const key = { ar_rules: 'rules', ar_templates: 'templates', ar_public_replies: 'replies' }[table];
+    D[key] = D[key].filter(x => x.id !== id);
+    renderAll();
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------- 範本 ---------- */
+const BTYPE = { url: '🔗 開連結', next: '➡️ 傳下一則', gate: '💗 有追蹤才給' };
+function renderTpls() {
+  $('tplList').innerHTML = `<div class="card">
+    <div class="row-head"><div><h2>私訊範本</h2><div class="sub" style="margin:0">存好的訊息，規則和按鈕都能重複使用</div></div>
+    <button class="btn" onclick="editTpl()">＋ 新增範本</button></div>
+    ${D.templates.length ? D.templates.map(t => `<div class="rule">
+      <div class="body">
+        <div class="name">${esc(t.name)}</div>
+        <div class="stats" style="white-space:pre-wrap;max-height:60px;overflow:hidden">${esc((t.text || '').slice(0, 120))}</div>
+        <div class="kws">${(t.buttons || []).map(b => `<span class="kw">${BTYPE[b.type].split(' ')[0]} ${esc(b.title)}</span>`).join('')}${t.image_url ? '<span class="kw">🖼 圖片</span>' : ''}</div>
+      </div>
+      <div class="acts">
+        <button class="btn small ghost" onclick="editTpl(${t.id})">編輯</button>
+        <button class="btn small danger" onclick="delRow('ar_templates', ${t.id})">刪除</button>
+      </div>
+    </div>`).join('') : '<div class="empty">還沒有範本</div>'}
+  </div>`;
+}
+function editTpl(id) {
+  const t = id ? D.templates.find(x => x.id === id) : { buttons: [] };
+  D.tedit = { ...t, buttons: JSON.parse(JSON.stringify(t.buttons || [])) };
+  $('teTitle').textContent = id ? '編輯私訊範本' : '新增私訊範本';
+  $('teName').value = t.name || '';
+  $('teText').value = t.text || '';
+  $('teImage').value = t.image_url || '';
+  $('teErr').textContent = '';
+  $('tplEdit').classList.remove('hidden');
+  renderBtns(); preview();
+  $('tplEdit').scrollIntoView({ behavior: 'smooth' });
+}
+function closeTpl() { $('tplEdit').classList.add('hidden'); D.tedit = null; }
+function tplOptions(sel, excludeId) {
+  return '<option value="">（選範本）</option>' + D.templates.filter(t => t.id !== excludeId).map(t => `<option value="${t.id}" ${t.id === sel ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+}
+function renderBtns() {
+  const bs = D.tedit.buttons;
+  $('teButtons').innerHTML = bs.map((b, i) => `<div class="bt">
+    <select onchange="setB(${i},'type',this.value)">${Object.entries(BTYPE).map(([k, v]) => `<option value="${k}" ${b.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <input type="text" maxlength="20" placeholder="按鈕文字，例如：想買！點我！" value="${esc(b.title || '')}" oninput="setB(${i},'title',this.value)">
+    ${b.type === 'url' ? `<input class="full" type="url" placeholder="https://reurl.cc/..." value="${esc(b.url || '')}" oninput="setB(${i},'url',this.value)">` : ''}
+    ${b.type !== 'url' ? `<label class="l full" style="margin:0">${b.type === 'gate' ? '有追蹤的話傳' : '按了之後傳'}</label><select class="full" onchange="setB(${i},'next',+this.value||null)">${tplOptions(b.next, D.tedit.id)}</select>` : ''}
+    ${b.type === 'gate' ? `<label class="l full" style="margin:0">沒追蹤的話傳（不選＝預設「追蹤後再按一次」）</label><select class="full" onchange="setB(${i},'fail',+this.value||null)">${tplOptions(b.fail, D.tedit.id)}</select>` : ''}
+    <button class="btn small danger x full" onclick="D.tedit.buttons.splice(${i},1);renderBtns();preview()">移除這顆</button>
+  </div>`).join('');
+  $('teAddBtn').classList.toggle('hidden', bs.length >= 3);
+}
+function setB(i, k, v) { D.tedit.buttons[i][k] = v; if (k === 'type') renderBtns(); preview(); }
+function addBtn() { D.tedit.buttons.push({ type: 'url', title: '' }); renderBtns(); preview(); }
+function preview() {
+  if (!D.tedit) return;
+  const text = $('teText').value, img = $('teImage').value.trim();
+  $('teCount').textContent = text.length;
+  $('teCount').style.color = text.length > 640 ? 'var(--danger)' : '';
+  $('tePreview').innerHTML = (img ? `<img class="pv-img" src="${esc(img)}" onerror="this.style.display='none'">` : '') +
+    `<div class="bubble">${esc(text) || '<span style="color:#999">（訊息文字）</span>'}${D.tedit.buttons.map(b => `<span class="bb">${esc(b.title || '按鈕')}</span>`).join('')}</div>`;
+}
+['teText', 'teImage'].forEach(id => $(id).addEventListener('input', preview));
+
+async function saveTpl() {
+  const t = D.tedit;
+  const row = { ...(t.id ? { id: t.id } : {}), name: $('teName').value.trim(), text: $('teText').value, image_url: $('teImage').value.trim() || null, buttons: t.buttons };
+  if (!row.name) return $('teErr').textContent = '幫範本取個名字';
+  if (!row.text.trim() && !row.buttons.length) return $('teErr').textContent = '要有文字或按鈕';
+  if (row.buttons.length && row.text.length > 640) return $('teErr').textContent = '有按鈕時文字最多 640 字';
+  for (const b of row.buttons) {
+    if (!b.title) return $('teErr').textContent = '每顆按鈕都要有文字';
+    if (b.type === 'url' && !/^https?:\/\//.test(b.url || '')) return $('teErr').textContent = `「${b.title}」要填 https:// 開頭的網址`;
+    if (b.type !== 'url' && !b.next) return $('teErr').textContent = `「${b.title}」要選按了之後傳哪個範本（可以先把下一則範本建好再回來選）`;
+  }
+  try {
+    const { row: saved } = await api('save', { table: 'ar_templates', row });
+    const i = D.templates.findIndex(x => x.id === saved.id);
+    if (i >= 0) D.templates[i] = saved; else D.templates.unshift(saved);
+    closeTpl(); renderTpls();
+  } catch (e) { $('teErr').textContent = e.message; }
+}
+
+/* ---------- 公開回覆庫 ---------- */
+function renderReplies() {
+  $('replyList').innerHTML = D.replies.length ? D.replies.map(r => `<div class="reply"><span>${esc(r.text)}</span><button class="btn small danger" onclick="delRow('ar_public_replies', ${r.id})">刪除</button></div>`).join('') : '<div class="empty">還沒有句子</div>';
+}
+async function addReply() {
+  const text = $('newReply').value.trim();
+  if (!text) return;
+  try {
+    const { row } = await api('save', { table: 'ar_public_replies', row: { text } });
+    D.replies.push(row); $('newReply').value = ''; renderReplies();
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------- 紀錄 ---------- */
+async function loadLog() {
+  $('logBody').innerHTML = '<tr><td colspan="5" class="empty">讀取中…</td></tr>';
+  try { D.events = (await api('events')).events; } catch (e) { $('logBody').innerHTML = `<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`; return; }
+  const cur = $('logRule').value;
+  $('logRule').innerHTML = '<option value="">全部規則</option>' + D.rules.map(r => `<option value="${r.id}" ${String(r.id) === cur ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+  renderLog();
+}
+function renderLog() {
+  const rid = +$('logRule').value || null;
+  const ev = D.events.filter(e => !rid || e.rule_id === rid);
+  const c = k => ev.filter(e => e.kind === k).length;
+  const people = new Set(ev.filter(e => e.kind === 'trigger').map(e => e.user_id)).size;
+  $('logStats').innerHTML = `觸發 ${c('trigger')} 次（${people} 人）・私訊 ${c('dm')}・公開回覆 ${c('public_reply')}・按按鈕 ${c('button')}・點連結 ${c('click')}・有追蹤 ${c('follow_yes')} / 沒追蹤 ${c('follow_no')}・重複略過 ${c('dup')}・錯誤 ${c('error')}`;
+  const rn = id => D.rules.find(r => r.id === id)?.name || '';
+  $('logBody').innerHTML = ev.slice(0, 400).map(e => `<tr>
+    <td class="k">${new Date(e.created_at).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+    <td class="k"><span class="kind ${e.kind}">${KIND[e.kind] || e.kind}</span></td>
+    <td class="k">${e.username ? `<a href="https://www.instagram.com/${encodeURIComponent(e.username)}/" target="_blank" rel="noopener">@${esc(e.username)}</a>` : ''}</td>
+    <td>${esc(rn(e.rule_id))}</td>
+    <td>${esc(e.keyword ? `［${e.keyword}］` : '')}${esc(e.detail || '')}</td>
+  </tr>`).join('') || '<tr><td colspan="5" class="empty">還沒有紀錄</td></tr>';
+}
+
+init();
+</script>
+</body>
+</html>

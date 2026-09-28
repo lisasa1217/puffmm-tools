@@ -27,7 +27,7 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
   // 短碼網址（不是首頁/已知頁面）先把首頁藏起來，避免跳轉前閃一下
   (function(){
     var p = location.pathname.replace(/^\/+|\/+$/g,'');
-    if (['', 'labor-form', 'shorturl', 'lottery', 'privacy', 'index', 'index.html'].indexOf(p) === -1) document.documentElement.className = 'go';
+    if (['', 'labor-form', 'shorturl', 'lottery', 'autoreply', 'privacy', 'index', 'index.html'].indexOf(p) === -1) document.documentElement.className = 'go';
   })();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -213,6 +213,16 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
         </div>
       </a>
 
+      <a class="app-win" data-c="blue" href="/autoreply">
+        <div class="tb"><span>auto_reply.exe</span><span class="x"><i></i><i></i></span></div>
+        <div class="bd">
+          <div class="slot"><i data-px="heart"></i></div>
+          <h3>IG 自動回覆</h3>
+          <p>留言、限動回覆出現關鍵字就自動私訊，可鎖定貼文、加按鈕、查追蹤</p>
+          <span class="go">START ▶</span>
+        </div>
+      </a>
+
       <div class="app-win soon" data-c="grey">
         <div class="tb"><span>new_tool.???</span><span class="x"><i></i><i></i></span></div>
         <div class="bd">
@@ -238,7 +248,7 @@ labor-form.html、shorturl.html、lottery.html；共用 pixel.css / pixel.js / f
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rb2Nsd3BmdWd0YWVwd3BnbndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MjI2ODMsImV4cCI6MjEwNTE5ODY4M30.u94y7QHG7MalAghzF4lp40X9IIuHgMxoMncg1Zhx32w';
 
   const path = location.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
-  const KNOWN_PAGES = ['', 'labor-form', 'shorturl', 'lottery', 'privacy', 'index', 'index.html'];
+  const KNOWN_PAGES = ['', 'labor-form', 'shorturl', 'lottery', 'autoreply', 'privacy', 'index', 'index.html'];
   if (KNOWN_PAGES.includes(path)) return; // normal hub page, do nothing
 
   const box = (inner) => `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:20px;position:relative;z-index:5;">${inner}</div>`;
