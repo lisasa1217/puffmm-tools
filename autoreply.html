@@ -127,6 +127,14 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   }
   body select:hover { background-color: #fff1dc !important; }
   .bt .mv { display:flex; gap:6px; }
+  .flow { border-left: 4px solid #f6b3c8; padding: 4px 0 4px 16px; margin: 0 0 18px 6px; }
+  .flow h3 { font-size: 14.5px; margin-bottom: 8px; }
+  .flow h3 .no { display:inline-block; min-width:26px; height:26px; line-height:26px; text-align:center; background:#f6b3c8; color:#fff; margin-right:6px; font-size:13px; }
+  .flow textarea { min-height: 90px; }
+  .flow .arrow { font-size:12.5px; color: var(--muted); margin: 6px 0 12px; }
+  .link-row { display:grid; grid-template-columns: 1fr 1.6fr auto; gap:8px; margin-bottom:8px; }
+  .reply input { flex:1; }
+  @media (max-width: 800px) { .link-row { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -184,8 +192,41 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
         </div>
         <div class="field">
           <label class="l">私訊內容</label>
-          <select id="reTemplate"></select>
+          <div class="seg" id="reMode">
+            <button data-v="write" class="on">📝 直接在這裡寫（推薦）</button>
+            <button data-v="tpl">📂 用已經存好的範本</button>
+          </div>
           <div class="hint" id="reTplHint"></div>
+        </div>
+
+        <div id="reWrite">
+          <div class="flow">
+            <h3><span class="no">1</span>客人觸發後，先收到這則</h3>
+            <textarea id="f1Text">嗨嗨～謝謝你留言 💛
+點下面的按鈕拿連結 👇</textarea>
+            <div style="margin-top:8px"><label class="l">按鈕文字（最多 20 字）</label><input type="text" id="f1Btn" maxlength="20" value="🔗 給我連結"></div>
+            <label class="check" style="margin-top:12px"><input type="checkbox" id="fGate" checked> 客人按按鈕時，先確認有追蹤我才給連結</label>
+            <div class="arrow">↓ 客人按下按鈕後</div>
+          </div>
+          <div class="flow">
+            <h3><span class="no">2</span><span id="fAHead">有追蹤 → 給這則（團購介紹＋連結）</span></h3>
+            <textarea id="fAText" placeholder="✨ KC SKIN 水凝多泌面膜 (~10/5)&#10;十月精華液就漲價囉～把握！"></textarea>
+            <label class="l" style="margin-top:10px">連結按鈕（最多 3 顆）</label>
+            <div id="fLinks"></div>
+            <button class="btn small ghost" id="fAddLink" onclick="addLink()">＋ 加連結按鈕</button>
+          </div>
+          <div class="flow" id="fBBox">
+            <h3><span class="no">3</span>沒追蹤 → 給這則</h3>
+            <textarea id="fBText">還沒追蹤芙媽喔 🥺
+追蹤 @puff.andmom 之後，再按一次下面的按鈕就給你！</textarea>
+            <div style="margin-top:8px"><label class="l">按鈕文字</label><input type="text" id="fBBtn" maxlength="20" value="我追蹤好了！"></div>
+            <div class="hint">客人追蹤完按這顆，系統會再查一次，有追蹤就自動給第 2 則。</div>
+          </div>
+        </div>
+
+        <div class="field hidden" id="reTplWrap">
+          <select id="reTemplate"></select>
+          <div class="hint">要改範本的內容，到上面的「✉️ 私訊範本」分頁改。</div>
         </div>
         <div class="field" id="reCooldownField">
           <label class="l">同一個人多久內不重複回</label>
@@ -246,7 +287,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
         <div class="sub">觸發時從規則勾選的句子裡隨機挑一句回在留言底下，看起來比較不像機器人。可以寫 {name} 代入對方帳號。</div>
         <div id="replyList"></div>
         <div style="display:flex;gap:8px;margin-top:12px">
-          <input type="text" id="newReply" placeholder="例如：私訊給你囉 {name} 💌" onkeydown="if(event.key==='Enter')addReply()">
+          <input type="text" id="newReply" placeholder="例如：私訊給你囉 {name} 💌">
           <button class="btn" style="white-space:nowrap" onclick="addReply()">新增</button>
         </div>
       </div>
@@ -361,8 +402,73 @@ function ruleForm() {
     first_template_id: +$('reTemplate').value || null,
     cooldown_hours: Math.max(0, parseInt($('reCooldown').value) || 0),
     active: $('reActive').checked,
+    flow: flowForm(),
   };
 }
+function flowForm() {
+  return { mode: segVal('reMode'), f1Text: $('f1Text').value, f1Btn: $('f1Btn').value, gate: $('fGate').checked,
+    aText: $('fAText').value, links: D.edit ? D.edit.links || [] : [], bText: $('fBText').value, bBtn: $('fBBtn').value };
+}
+function setFlow(f) {
+  f = f || {};
+  segSet('reMode', f.mode || 'write');
+  if (f.f1Text !== undefined) $('f1Text').value = f.f1Text;
+  if (f.f1Btn !== undefined) $('f1Btn').value = f.f1Btn;
+  if (f.gate !== undefined) $('fGate').checked = f.gate;
+  if (f.aText !== undefined) $('fAText').value = f.aText;
+  if (f.bText !== undefined) $('fBText').value = f.bText;
+  if (f.bBtn !== undefined) $('fBBtn').value = f.bBtn;
+  D.edit.links = JSON.parse(JSON.stringify(f.links || [{ title: '想買！點我！', url: '' }]));
+  renderLinks(); syncMode();
+}
+function syncMode() {
+  const w = segVal('reMode') === 'write';
+  $('reWrite').classList.toggle('hidden', !w);
+  $('reTplWrap').classList.toggle('hidden', w);
+  const g = $('fGate').checked;
+  $('fBBox').classList.toggle('hidden', !g);
+  $('fAHead').textContent = g ? '有追蹤 → 給這則（團購介紹＋連結）' : '按了按鈕 → 給這則（團購介紹＋連結）';
+}
+function renderLinks() {
+  const ls = D.edit.links;
+  $('fLinks').innerHTML = ls.map((l, i) => `<div class="link-row">
+    <input type="text" maxlength="20" placeholder="按鈕文字，例如：想買！點我！" value="${esc(l.title)}" oninput="D.edit.links[${i}].title=this.value;ruleDraft()">
+    <input type="url" placeholder="https://reurl.cc/..." value="${esc(l.url)}" oninput="D.edit.links[${i}].url=this.value;ruleDraft()">
+    <button class="btn small danger" onclick="D.edit.links.splice(${i},1);renderLinks();ruleDraft()">移除</button>
+  </div>`).join('');
+  $('fAddLink').classList.toggle('hidden', ls.length >= 3);
+}
+function addLink() { D.edit.links.push({ title: '', url: '' }); renderLinks(); ruleDraft(); }
+segBind('reMode', () => { syncMode(); ruleDraft(); });
+$('fGate').addEventListener('change', () => { syncMode(); ruleDraft(); });
+['f1Text', 'f1Btn', 'fAText', 'fBText', 'fBBtn'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
+
+// 「直接寫」模式：依序建好 A（給連結）→ B（沒追蹤）→ 第一則，把按鈕接起來
+async function buildFlow(name, f) {
+  const save = async row => { const { row: r } = await api('save', { table: 'ar_templates', row }); D.templates.unshift(r); return r; };
+  const A = await save({ name: `${name}｜給連結`, text: f.aText, buttons: f.links.map(l => ({ type: 'url', title: l.title.trim(), url: l.url.trim() })) });
+  let B = null;
+  if (f.gate) {
+    B = await save({ name: `${name}｜沒追蹤`, text: f.bText, buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id }] });
+    B = (await api('save', { table: 'ar_templates', row: { id: B.id, buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id, fail: B.id }] } })).row;
+    D.templates = D.templates.map(t => (t.id === B.id ? B : t));
+  }
+  const F = await save({ name: `${name}｜第一則`, text: f.f1Text, buttons: [{ type: f.gate ? 'gate' : 'next', title: f.f1Btn.trim(), next: A.id, fail: B ? B.id : null }] });
+  return F.id;
+}
+function checkFlow(f) {
+  if (!f.f1Text.trim()) return '第 1 則要寫內容';
+  if (!f.f1Btn.trim()) return '第 1 則要有按鈕文字';
+  if (!f.aText.trim() && !f.links.length) return '第 2 則要寫內容或放連結';
+  if (f.aText.length > 640) return '第 2 則最多 640 字';
+  for (const l of f.links) {
+    if (!l.title.trim()) return '每顆連結按鈕都要有文字';
+    if (!/^https?:\/\//.test(l.url.trim())) return `「${l.title}」要填 https:// 開頭的網址`;
+  }
+  if (f.gate && (!f.bText.trim() || !f.bBtn.trim())) return '第 3 則（沒追蹤）要有內容和按鈕文字';
+  return '';
+}
+
 function ruleDirty() { return !!D.edit && D.edit.snap !== undefined && JSON.stringify(ruleForm()) !== D.edit.snap; }
 function ruleDraft() { if (D.edit && D.edit.snap !== undefined) store('ar_draft_rule', ruleForm()); }
 function editRule(id) {
@@ -385,6 +491,7 @@ function editRule(id) {
   $('reErr').textContent = '';
   $('ruleEdit').classList.remove('hidden');
   D.edit.snap = undefined;
+  setFlow(r.flow || { mode: id ? 'tpl' : 'write' });
   syncRuleForm();
   D.edit.snap = fromDraft ? '' : JSON.stringify(ruleForm());
   $('ruleEdit').scrollIntoView({ behavior: 'smooth' });
@@ -433,11 +540,22 @@ function pickMedia(id) {
 
 async function saveRule() {
   const row = ruleForm();
+  const flow = row.flow; delete row.flow;
   if (!row.id) delete row.id;
+  if (flow.mode === 'write') {
+    if (!row.name) return $('reErr').textContent = '幫規則取個名字';
+    if (!row.keywords.length) return $('reErr').textContent = '至少要一個關鍵字';
+    const err = checkFlow(flow);
+    if (err) return $('reErr').textContent = err;
+    if (row.trigger === 'comment' && !row.media_id && !confirm('沒有鎖定貼文，所有貼文出現這些字都會觸發，確定嗎？')) return;
+    try { row.first_template_id = await buildFlow(row.name, flow); }
+    catch (e) { return $('reErr').textContent = '建立訊息失敗：' + e.message; }
+    renderTpls();
+  }
   if (!row.name) return $('reErr').textContent = '幫規則取個名字';
   if (!row.keywords.length) return $('reErr').textContent = '至少要一個關鍵字';
-  if (!row.first_template_id) return $('reErr').textContent = '選一個私訊範本（沒有的話先去「私訊範本」新增）';
-  if (row.trigger === 'comment' && !row.media_id && !confirm('沒有鎖定貼文，所有貼文出現這些字都會觸發，確定嗎？')) return;
+  if (!row.first_template_id) return $('reErr').textContent = '選一個私訊範本，或改用「直接在這裡寫」';
+  if (flow.mode !== 'write' && row.trigger === 'comment' && !row.media_id && !confirm('沒有鎖定貼文，所有貼文出現這些字都會觸發，確定嗎？')) return;
   try {
     const { row: saved } = await api('save', { table: 'ar_rules', row });
     const i = D.rules.findIndex(x => x.id === saved.id);
@@ -565,7 +683,19 @@ async function saveTpl() {
 
 /* ---------- 公開回覆庫 ---------- */
 function renderReplies() {
-  $('replyList').innerHTML = D.replies.length ? D.replies.map(r => `<div class="reply"><span>${esc(r.text)}</span><button class="btn small danger" onclick="delRow('ar_public_replies', ${r.id})">刪除</button></div>`).join('') : '<div class="empty">還沒有句子</div>';
+  $('replyList').innerHTML = D.replies.length ? D.replies.map(r => D.replyEdit === r.id
+    ? `<div class="reply"><input type="text" id="rEdit" value="${esc(r.text)}"><button class="btn small" onclick="saveReply(${r.id})">儲存</button><button class="btn small ghost" onclick="D.replyEdit=null;renderReplies()">取消</button></div>`
+    : `<div class="reply"><span>${esc(r.text)}</span><button class="btn small ghost" onclick="D.replyEdit=${r.id};renderReplies();$('rEdit').focus()">編輯</button><button class="btn small danger" onclick="delRow('ar_public_replies', ${r.id})">刪除</button></div>`
+  ).join('') : '<div class="empty">還沒有句子，在下面新增你自己的回覆</div>';
+}
+async function saveReply(id) {
+  const text = $('rEdit').value.trim();
+  if (!text) return;
+  try {
+    const { row } = await api('save', { table: 'ar_public_replies', row: { id, text } });
+    Object.assign(D.replies.find(x => x.id === id), row);
+    D.replyEdit = null; renderReplies();
+  } catch (e) { alert(e.message); }
 }
 async function addReply() {
   const text = $('newReply').value.trim();

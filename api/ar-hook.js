@@ -30,12 +30,22 @@ async function template(id) {
   return rows[0] || null;
 }
 
-// 同一規則對同一人：留言只回一次；限動/私訊依冷卻時間（預設 24 小時）
+// 同一規則對同一人要不要再回：見下面（留言看有沒有互動過；限動/私訊依冷卻時間，預設 24 小時）
 async function claim(rule, userId) {
   const rows = await db(`ar_sent?rule_id=eq.${rule.id}&user_id=eq.${userId}&select=sent_at`);
   if (rows[0]) {
-    const hrs = rule.trigger === 'comment' ? Infinity : (rule.cooldown_hours ?? 24);
-    if ((Date.now() - new Date(rows[0].sent_at)) / 36e5 < hrs) return false;
+    if (rule.trigger === 'comment') {
+      // 留言：對方按過按鈕（有看到私訊）就不再重傳；完全沒互動的（可能沒看到，私訊躺在「訊息請求」）
+      // 再留言時可以重傳，但同一篇最多 3 次、而且至少隔 10 分鐘
+      const q = `ar_events?rule_id=eq.${rule.id}&user_id=eq.${userId}&select=kind`;
+      const evs = await db(q + '&kind=in.(button,dm)');
+      if (evs.some(e => e.kind === 'button')) return false;
+      if (evs.filter(e => e.kind === 'dm').length >= 3) return false;
+      if ((Date.now() - new Date(rows[0].sent_at)) / 6e4 < 10) return false;
+    } else {
+      const hrs = rule.cooldown_hours ?? 24;
+      if ((Date.now() - new Date(rows[0].sent_at)) / 36e5 < hrs) return false;
+    }
     await db(`ar_sent?rule_id=eq.${rule.id}&user_id=eq.${userId}`, { method: 'PATCH', body: { sent_at: new Date().toISOString() } });
     return true;
   }
