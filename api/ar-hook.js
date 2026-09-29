@@ -34,25 +34,26 @@ async function template(id) {
 }
 
 // 同一規則對同一人要不要再回：見下面（留言看有沒有互動過；限動/私訊依冷卻時間，預設 24 小時）
-async function claim(rule, userId) {
-  const rows = await db(`ar_sent?rule_id=eq.${rule.id}&user_id=eq.${userId}&select=sent_at`);
+async function claim(rule, userId, mediaId) {
+  // 留言：同一條規則換了貼文就算新的一次（key 帶貼文 id）；限動／私訊只看人
+  const who = rule.trigger === 'comment' && mediaId ? `${userId}@${mediaId}` : userId;
+  const rows = await db(`ar_sent?rule_id=eq.${rule.id}&user_id=eq.${encodeURIComponent(who)}&select=sent_at`);
   if (rows[0]) {
     if (rule.trigger === 'comment') {
-      // 留言：對方按過按鈕（有看到私訊）就不再重傳；完全沒互動的（可能沒看到，私訊躺在「訊息請求」）
-      // 再留言時可以重傳，但同一篇最多 3 次、而且至少隔 10 分鐘
-      const q = `ar_events?rule_id=eq.${rule.id}&user_id=eq.${userId}&select=kind`;
-      const evs = await db(q + '&kind=in.(button,dm)');
-      if (evs.some(e => e.kind === 'button')) return false;
-      if (evs.filter(e => e.kind === 'dm').length >= 3) return false;
+      // 留言：這篇上次私訊之後，對方按過按鈕／點過連結（有看到）就不再重傳；
+      // 完全沒互動的（可能沒看到，私訊躺在「訊息請求」）再留言時可以重傳，但至少隔 10 分鐘
+      const since = new Date(rows[0].sent_at).toISOString();
+      const evs = await db(`ar_events?rule_id=eq.${rule.id}&user_id=eq.${userId}&kind=in.(button,click)&created_at=gte.${since}&select=kind`);
+      if (evs.length) return false;
       if ((Date.now() - new Date(rows[0].sent_at)) / 6e4 < 10) return false;
     } else {
       const hrs = rule.cooldown_hours ?? 24;
       if ((Date.now() - new Date(rows[0].sent_at)) / 36e5 < hrs) return false;
     }
-    await db(`ar_sent?rule_id=eq.${rule.id}&user_id=eq.${userId}`, { method: 'PATCH', body: { sent_at: new Date().toISOString() } });
+    await db(`ar_sent?rule_id=eq.${rule.id}&user_id=eq.${encodeURIComponent(who)}`, { method: 'PATCH', body: { sent_at: new Date().toISOString() } });
     return true;
   }
-  const ins = await db('ar_sent', { method: 'POST', body: { rule_id: rule.id, user_id: userId }, prefer: 'resolution=ignore-duplicates,return=representation' });
+  const ins = await db('ar_sent', { method: 'POST', body: { rule_id: rule.id, user_id: who }, prefer: 'resolution=ignore-duplicates,return=representation' });
   return ins.length > 0;
 }
 
@@ -72,7 +73,7 @@ async function onComment(v, ownerId, token) {
   if (!hit) return;
   const { rule, kw } = hit;
   const base = { rule_id: rule.id, user_id: v.from.id, username: v.from.username, trigger: 'comment', detail: v.text?.slice(0, 200) };
-  if (!(await claim(rule, v.from.id))) return logEvent({ ...base, kind: 'dup' });
+  if (!(await claim(rule, v.from.id, v.media?.id))) return logEvent({ ...base, kind: 'dup' });
   await logEvent({ ...base, kind: 'trigger', keyword: kw });
 
   // 公開回覆（從回覆庫隨機挑）
