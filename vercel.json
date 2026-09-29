@@ -5,6 +5,9 @@
     },
     "api/ar-hook.js": {
       "maxDuration": 30
+    },
+    "api/ar-retry.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

@@ -1,5 +1,5 @@
 // 自動回覆後台 API（要帶 x-pass = AR_ADMIN_PASS）
-const { db, ig } = require('../lib/ar');
+const { db, ig, processQueue } = require('../lib/ar');
 
 const TABLES = {
   ar_rules: ['name', 'trigger', 'media_id', 'media_label', 'media_thumb', 'keywords', 'fuzzy', 'public_reply_ids', 'first_template_id', 'cooldown_hours', 'active', 'any_text', 'starts_at', 'ends_at'],
@@ -44,8 +44,19 @@ module.exports = async (req, res) => {
 
     if (action === 'events') {
       const since = new Date(Date.now() - 30 * 864e5).toISOString();
-      const rows = await db(`ar_events?select=*&created_at=gte.${since}&order=id.desc&limit=5000`);
-      return res.json({ events: rows });
+      const [rows, queue] = await Promise.all([
+        db(`ar_events?select=*&created_at=gte.${since}&order=id.desc&limit=5000`),
+        db(`ar_queue?select=id,created_at,rule_id,user_id,username,kind,status,attempts,next_at,last_error,done_at,payload->>label&created_at=gte.${since}&order=id.desc&limit=500`),
+      ]);
+      return res.json({ events: rows, queue });
+    }
+
+    // 補發：指定一筆或全部「等待中／失敗」的，立刻再試
+    if (action === 'retry') {
+      const { id } = await readJson(req);
+      const filter = id ? `id=eq.${parseInt(id, 10)}` : 'status=in.(pending,failed)';
+      await db(`ar_queue?${filter}&status=neq.sent`, { method: 'PATCH', body: { status: 'pending', next_at: new Date().toISOString() } });
+      return res.json(await processQueue(id ? 1 : 40));
     }
 
     if (action === 'posts') {

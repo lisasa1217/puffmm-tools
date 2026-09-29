@@ -1,6 +1,6 @@
 // IG Webhook：留言、限動回覆、私訊、按鈕 → 依規則自動回覆
 const crypto = require('crypto');
-const { db, ig, getToken, matchKeyword, buildMessages, sendTo, logEvent } = require('../lib/ar');
+const { db, ig, getToken, matchKeyword, buildMessages, sendTo, logEvent, isRetryable, enqueue, processQueue } = require('../lib/ar');
 
 function readRaw(req) {
   return new Promise((resolve, reject) => {
@@ -20,6 +20,15 @@ function validSig(raw, header) {
 }
 
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+// 送不出去：IG 暫時性問題就排進補發佇列，其他記成錯誤
+async function failed(e, base, item, what) {
+  if (isRetryable(e)) {
+    await enqueue({ rule_id: base.rule_id, user_id: base.user_id, username: base.username, ...item, last_error: e.message.slice(0, 300) });
+    return logEvent({ ...base, kind: 'queued', detail: `${what}排隊補發：${e.message.slice(0, 120)}` });
+  }
+  return logEvent({ ...base, kind: 'error', detail: `${what}失敗：${e.message}` });
+}
 
 async function rulesFor(trigger) {
   const now = Date.now();
@@ -78,24 +87,30 @@ async function onComment(v, ownerId, token) {
 
   // 公開回覆（從回覆庫隨機挑）
   if (rule.public_reply_ids?.length) {
+    let msg = null;
     try {
       const rows = await db(`ar_public_replies?id=in.(${rule.public_reply_ids.join(',')})&select=text`);
       if (rows.length) {
-        const msg = pick(rows).text.replace(/\{name\}/g, '@' + v.from.username);
+        msg = pick(rows).text.replace(/\{name\}/g, '@' + v.from.username);
         await ig(`/${v.id}/replies`, { method: 'POST', body: { message: msg }, token });
         await logEvent({ ...base, kind: 'public_reply', detail: msg });
       }
-    } catch (e) { await logEvent({ ...base, kind: 'error', detail: '公開回覆失敗：' + e.message }); }
+    } catch (e) {
+      await failed(e, base, { kind: 'public_reply', payload: { comment_id: v.id, message: msg, label: '公開回覆' } }, '公開回覆');
+    }
   }
 
   // 私訊（IG 規定：每則留言只能私訊一次 → 只送一則，圖片略過）
   const tpl = await template(rule.first_template_id);
   if (!tpl) return;
+  const msgs = buildMessages({ ...tpl, image_url: null }, { ruleId: rule.id, userId: v.from.id });
+  const message = msgs[msgs.length - 1];
   try {
-    const msgs = buildMessages({ ...tpl, image_url: null }, { ruleId: rule.id, userId: v.from.id });
-    await ig('/me/messages', { method: 'POST', body: { recipient: { comment_id: v.id }, message: msgs[msgs.length - 1] }, token });
+    await ig('/me/messages', { method: 'POST', body: { recipient: { comment_id: v.id }, message }, token });
     await logEvent({ ...base, kind: 'dm', detail: tpl.name });
-  } catch (e) { await logEvent({ ...base, kind: 'error', detail: '私訊失敗：' + e.message }); }
+  } catch (e) {
+    await failed(e, base, { kind: 'comment_dm', payload: { recipient: { comment_id: v.id }, messages: [message], label: tpl.name } }, '私訊');
+  }
 }
 
 async function username(id, token) {
@@ -105,10 +120,13 @@ async function username(id, token) {
 async function sendTemplate(userId, tplId, ruleId, token, base) {
   const tpl = await template(tplId);
   if (!tpl) return;
+  const msgs = buildMessages(tpl, { ruleId, userId });
   try {
-    await sendTo({ id: userId }, buildMessages(tpl, { ruleId, userId }), token);
+    await sendTo({ id: userId }, msgs, token);
     await logEvent({ ...base, kind: 'dm', detail: tpl.name });
-  } catch (e) { await logEvent({ ...base, kind: 'error', detail: '私訊失敗：' + e.message }); }
+  } catch (e) {
+    await failed(e, base, { kind: 'dm', payload: { recipient: { id: userId }, messages: msgs, label: tpl.name } }, '私訊');
+  }
 }
 
 async function onMessage(m, ownerId, token) {
@@ -173,5 +191,6 @@ module.exports = async (req, res) => {
     for (const m of entry.messaging || []) jobs.push(onMessage(m, ownerId, token));
   }
   await Promise.allSettled(jobs);
+  try { await processQueue(3, token); } catch (e) { /* 補發失敗不影響回應 */ }
   res.status(200).send('ok');
 };

@@ -101,7 +101,11 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   .kind.error { background:#fde2e2; color: var(--danger); }
   .kind.dup { background:#eee; color:#777; }
   .kind.click, .kind.follow_yes { background: var(--ok-bg); color: var(--accent); }
-  .kind.follow_no { background: var(--warn-bg); color: var(--warn); }
+  .kind.follow_no, .kind.queued { background: var(--warn-bg); color: var(--warn); }
+  .qs { font-size:11.5px; font-weight:700; padding:2px 8px; white-space:nowrap; }
+  .qs.pending, .qs.sending { background: var(--warn-bg); color: var(--warn); }
+  .qs.sent { background: var(--ok-bg); color: var(--accent); }
+  .qs.failed { background:#fde2e2; color: var(--danger); }
   .kind.trigger, .kind.dm, .kind.public_reply, .kind.button { background: var(--surface2); }
 
   .notice { background:#fff3a8; border:1px solid var(--accent2); padding:12px 14px; font-size:13px; line-height:1.6; margin-bottom:16px; }
@@ -400,6 +404,14 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
         <div id="logStats" class="sub"></div>
         <div style="overflow:auto"><table><thead><tr><th>時間</th><th>事件</th><th>帳號</th><th>規則</th><th>內容</th></tr></thead><tbody id="logBody"></tbody></table></div>
       </div>
+      <div class="card">
+        <div class="row-head">
+          <div><h2>📮 補發追蹤</h2><div class="sub" style="margin:0">IG 暫時送不出去的私訊／留言回覆會排隊，每 5 分鐘自動重試（最多 8 次、約 16 小時）。</div></div>
+          <button class="btn small" id="qAll" onclick="retryQ(null, this)">全部重試</button>
+        </div>
+        <div id="qStats" class="sub"></div>
+        <div style="overflow:auto"><table><thead><tr><th>時間</th><th>帳號</th><th>規則</th><th>要送的</th><th>狀態</th><th>原因</th><th></th></tr></thead><tbody id="qBody"></tbody></table></div>
+      </div>
     </section>
   </div>
 </div>
@@ -412,7 +424,7 @@ function load(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e)
 
 const D = { rules: [], templates: [], replies: [], events: null, media: {}, edit: null, tedit: null };
 const TRIG = { comment: '💬 貼文留言', story: '📱 限動回覆', dm: '✉️ 私訊' };
-const KIND = { trigger: '觸發', dup: '重複略過', public_reply: '公開回覆', dm: '已私訊', button: '按按鈕', follow_yes: '有追蹤', follow_no: '沒追蹤', click: '點連結', error: '錯誤' };
+const KIND = { trigger: '觸發', dup: '重複略過', public_reply: '公開回覆', dm: '已私訊', button: '按按鈕', follow_yes: '有追蹤', follow_no: '沒追蹤', click: '點連結', error: '錯誤', queued: '排隊補發' };
 
 async function api(action, body) {
   const r = await fetch('/api/ar-admin?action=' + action, {
@@ -494,7 +506,12 @@ function ruleCard(r) {
   if (!r.first_template_id) warn.push('還沒設定私訊內容');
   if (r.trigger === 'comment' && !r.media_id) warn.push('沒有鎖定貼文，所有貼文都會觸發');
   if (!r.any_text && !(r.keywords || []).length) warn.push('沒有關鍵字');
-  if (n && n.err) warn.push(`有 ${n.err} 筆送出失敗，到「紀錄」看原因`);
+  const q = (D.queue || []).filter(x => x.rule_id === r.id);
+  const qPend = q.filter(x => x.status === 'pending' || x.status === 'sending').length;
+  const qFail = q.filter(x => x.status === 'failed').length;
+  if (qPend) warn.push(`📮 有 ${qPend} 則排隊補發中（IG 暫時送不出去，系統會自動重試）`);
+  if (qFail) warn.push(`${qFail} 則補發失敗，到「紀錄 → 補發追蹤」看原因或重試`);
+  else if (n && n.err) warn.push(`有 ${n.err} 筆送出失敗，到「紀錄」看原因`);
   const target = r.media_id ? '' : (r.trigger === 'dm' ? '私訊' : (r.trigger === 'story' ? '全部限動' : '全部貼文'));
   return `<div class="rc ${r.active && !(r.ends_at && new Date(r.ends_at) <= now) ? '' : 'off'}">
     <div class="top">
@@ -518,7 +535,7 @@ function renderRules() {
     <button class="btn" onclick="editRule()">＋ 新增規則</button></div>
     ${D.rules.length ? `<div class="rcards">${D.rules.map(ruleCard).join('')}</div>` : '<div class="empty">還沒有規則，按「＋ 新增規則」開始</div>'}
   </div>`;
-  if (!D.events) api('events').then(j => { D.events = j.events; renderRules(); }).catch(() => {});
+  if (!D.events) api('events').then(j => { D.events = j.events; D.queue = j.queue || []; renderRules(); }).catch(() => {});
 }
 // 複製：同一套訊息換一篇貼文用
 function copyRule(id) {
@@ -999,12 +1016,48 @@ async function addReply() {
 /* ---------- 紀錄 ---------- */
 async function loadLog() {
   $('logBody').innerHTML = '<tr><td colspan="5" class="empty">讀取中…</td></tr>';
-  try { D.events = (await api('events')).events; } catch (e) { $('logBody').innerHTML = `<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`; return; }
+  try { const j = await api('events'); D.events = j.events; D.queue = j.queue || []; } catch (e) { $('logBody').innerHTML = `<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`; return; }
   const cur = $('logRule').value;
   $('logRule').innerHTML = '<option value="">全部規則</option>' + D.rules.map(r => `<option value="${r.id}" ${String(r.id) === cur ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
   renderLog();
 }
+function qStatus(x) {
+  if (x.status === 'sent') return `<span class="qs sent">補發成功</span>`;
+  if (x.status === 'failed') return `<span class="qs failed">失敗（試了 ${x.attempts} 次）</span>`;
+  const t = new Date(x.next_at);
+  return `<span class="qs pending">等待補發・已試 ${x.attempts} 次・下次 ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}</span>`;
+}
+function renderQueue() {
+  const rid = +$('logRule').value || null;
+  const q = (D.queue || []).filter(x => !rid || x.rule_id === rid);
+  const c = st => q.filter(x => x.status === st).length;
+  $('qStats').textContent = q.length ? `等待補發 ${c('pending') + c('sending')}・補發成功 ${c('sent')}・失敗 ${c('failed')}` : '';
+  $('qAll').classList.toggle('hidden', !q.some(x => x.status !== 'sent'));
+  const rn = id => D.rules.find(r => r.id === id)?.name || '';
+  const what = { comment_dm: '留言私訊', dm: '私訊', public_reply: '公開回覆' };
+  $('qBody').innerHTML = q.map(x => `<tr>
+    <td class="k">${new Date(x.created_at).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+    <td class="k">${x.username ? `<a href="https://www.instagram.com/${encodeURIComponent(x.username)}/" target="_blank" rel="noopener">@${esc(x.username)}</a>` : ''}</td>
+    <td>${esc(rn(x.rule_id))}</td>
+    <td>${esc(what[x.kind] || x.kind)}${x.label ? '：' + esc(x.label) : ''}</td>
+    <td>${qStatus(x)}</td>
+    <td style="color:var(--muted)">${esc(x.last_error || '')}</td>
+    <td>${x.status === 'sent' ? '' : `<button class="btn small ghost" onclick="retryQ(${x.id}, this)">立即重試</button>`}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="empty">沒有需要補發的 👍 全部都順利送出</td></tr>';
+}
+async function retryQ(id, btn) {
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = '重試中…';
+  try {
+    const r = await api('retry', { id });
+    await loadLog();
+    alert(r.due ? `重試 ${r.due} 則：成功 ${r.ok}、還沒成功 ${r.fail}` : '沒有需要重試的');
+  } catch (e) { alert('重試失敗：' + e.message); }
+  finally { btn.disabled = false; btn.textContent = label; }
+}
 function renderLog() {
+  renderQueue();
   const rid = +$('logRule').value || null;
   const ev = D.events.filter(e => !rid || e.rule_id === rid);
   const c = k => ev.filter(e => e.kind === k).length;

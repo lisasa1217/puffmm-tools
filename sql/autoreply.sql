@@ -67,3 +67,24 @@ alter table ar_rules enable row level security;
 alter table ar_sent enable row level security;
 alter table ar_events enable row level security;
 alter table app_secrets enable row level security;
+
+-- 補發佇列：IG 暫時送不出去的私訊／公開回覆排在這裡，api/ar-retry 會重試
+create table if not exists ar_queue (
+  id bigint generated always as identity primary key,
+  created_at timestamptz default now(),
+  rule_id bigint, user_id text, username text,
+  kind text,                 -- comment_dm / dm / public_reply
+  payload jsonb,             -- 要送的內容（recipient + messages，或 comment_id + message）
+  status text default 'pending',   -- pending / sending / sent / failed
+  attempts int default 0,
+  next_at timestamptz default now(),
+  last_error text,
+  done_at timestamptz
+);
+create index if not exists ar_queue_next on ar_queue (status, next_at);
+alter table ar_queue enable row level security;
+
+-- 每 5 分鐘叫一次補發（Vercel 免費方案的排程一天只能一次，所以用 Supabase 的 pg_cron）
+create extension if not exists pg_net;
+create extension if not exists pg_cron;
+select cron.schedule('ar-retry', '*/5 * * * *', $$ select net.http_get('https://pufftool.vercel.app/api/ar-retry') $$);
