@@ -143,6 +143,8 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
     width:100%; padding:9px 10px; font-size:14px; font-family:inherit; color:#6a5153; background:#fffdf2; border:0; cursor:pointer;
     box-shadow: 0 -2px 0 0 #6a5153, 0 2px 0 0 #6a5153, -2px 0 0 0 #6a5153, 2px 0 0 0 #6a5153; margin:2px; outline:none;
   }
+  body input[type=date]:not(.has)::-webkit-datetime-edit, body input[type=time]:not(.has)::-webkit-datetime-edit { color: transparent; }
+  body input[type=date]:not(.has):focus::-webkit-datetime-edit, body input[type=time]:not(.has):focus::-webkit-datetime-edit { color: #6a5153; }
   body input[type=date]:focus, body input[type=time]:focus { box-shadow: 0 -2px 0 0 #f6b3c8, 0 2px 0 0 #f6b3c8, -2px 0 0 0 #f6b3c8, 2px 0 0 0 #f6b3c8; }
   .flow { border-left: 4px solid #f6b3c8; padding: 4px 0 4px 16px; margin: 0 0 18px 6px; }
   .flow h3 { font-size: 14.5px; margin-bottom: 8px; }
@@ -282,7 +284,8 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           <div class="flow">
             <h3><span class="no" id="fANo">2</span><span id="fAHead">有追蹤 → 給這則（團購介紹＋連結）</span></h3>
             <textarea id="fAText" placeholder="✨ KC SKIN 水凝多泌面膜 (~10/5)&#10;十月精華液就漲價囉～把握！"></textarea>
-            <label class="l" style="margin-top:10px">連結按鈕（最多 3 顆）</label>
+            <label class="l" style="margin-top:10px">連結按鈕（選填，最多 3 顆）</label>
+            <div class="hint" style="margin:-2px 0 8px">不加按鈕也可以：網址直接寫在上面的文字裡，客人點了一樣會打開。差別是按鈕比較醒目，而且後台才算得到點擊率。</div>
             <div id="fLinks"></div>
             <button class="btn small ghost" id="fAddLink" onclick="addLink()">＋ 加連結按鈕</button>
           </div>
@@ -570,7 +573,7 @@ function setFlow(f) {
   if (f.aText !== undefined) $('fAText').value = f.aText;
   if (f.bText !== undefined) $('fBText').value = f.bText;
   if (f.bBtn !== undefined) $('fBBtn').value = f.bBtn;
-  D.edit.links = JSON.parse(JSON.stringify(f.links || [{ title: '想買！點我！', url: '' }]));
+  D.edit.links = JSON.parse(JSON.stringify(f.links || []));
   renderLinks(); syncMode();
 }
 function syncMode() {
@@ -686,14 +689,16 @@ function setDT(p, t) {
   const v = toLocal(t);
   $(p + 'D').value = v ? v.slice(0, 10) : '';
   $(p + 'T').value = v ? v.slice(11, 16) : '';
+  markDT();
 }
 function getDT(p, defTime) {
   const d = $(p + 'D').value;
   if (!d) return null;
   return new Date(`${d}T${$(p + 'T').value || defTime}`).toISOString();
 }
-function clearDT(p) { $(p + 'D').value = ''; $(p + 'T').value = ''; ruleDraft(); }
-['reStartD', 'reStartT', 'reEndD', 'reEndT'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
+function clearDT(p) { $(p + 'D').value = ''; $(p + 'T').value = ''; markDT(); ruleDraft(); }
+function markDT() { ['reStartD', 'reStartT', 'reEndD', 'reEndT'].forEach(id => $(id).classList.toggle('has', !!$(id).value)); }
+['reStartD', 'reStartT', 'reEndD', 'reEndT'].forEach(id => $(id).addEventListener('input', () => { markDT(); ruleDraft(); }));
 function syncActive() { $('reActiveText').textContent = $('reActive').checked ? '開啟中' : '已暫停'; }
 $('reActive').addEventListener('change', syncActive);
 
@@ -807,10 +812,14 @@ async function once(btn, fn) {
   try { await fn(); } finally { btn.disabled = false; btn.textContent = label; }
 }
 async function saveRule() {
+  $('reErr').textContent = '';
   const row = ruleForm();
   const flow = row.flow; delete row.flow;
   if (!row.id) delete row.id;
+  if ($('reStartT').value && !$('reStartD').value) return $('reErr').textContent = '「從什麼時候開始」有填時間，但還沒選日期（點日期那格選一天）';
+  if ($('reEndT').value && !$('reEndD').value) return $('reErr').textContent = '「到什麼時候結束」有填時間，但還沒選日期（點日期那格選一天）';
   if (row.starts_at && row.ends_at && row.ends_at <= row.starts_at) return $('reErr').textContent = '結束時間要比開始時間晚';
+  if (row.ends_at && new Date(row.ends_at) <= new Date() && !confirm('結束時間已經過了，這條規則存了也不會回覆。確定要這樣存嗎？')) return;
   if (flow.mode === 'write') {
     if (!row.name) return $('reErr').textContent = '幫規則取個名字';
     if (!row.keywords.length && !row.any_text) return $('reErr').textContent = '至少要一個關鍵字（或勾「任何內容都觸發」）';
