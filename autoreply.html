@@ -331,7 +331,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           <div class="hint">想臨時停掉（例如連結貼錯）就關掉，規則會保留。開著＋有排程＝只在排程時間內回覆。</div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn" onclick="saveRule()">儲存</button>
+          <button class="btn" id="reSave" onclick="once(this, saveRule)">儲存</button>
           <button class="btn ghost" onclick="closeRule()">取消</button>
           <button class="btn small danger hidden" id="reDel" style="margin-left:auto" onclick="delRule()">刪除這條規則</button>
         </div>
@@ -369,7 +369,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           </div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn" onclick="saveTpl()">儲存</button>
+          <button class="btn" id="teSave" onclick="once(this, saveTpl)">儲存</button>
           <button class="btn ghost" onclick="closeTpl()">取消</button>
         </div>
         <div class="err" id="teErr"></div>
@@ -383,7 +383,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
         <div id="replyList"></div>
         <div style="display:flex;gap:8px;margin-top:12px">
           <input type="text" id="newReply" placeholder="例如：私訊給你囉 {name} 💌">
-          <button class="btn" style="white-space:nowrap" onclick="addReply()">新增</button>
+          <button class="btn" style="white-space:nowrap" onclick="once(this, addReply)">新增</button>
         </div>
       </div>
     </section>
@@ -758,6 +758,13 @@ function pickMedia(id) {
   syncRuleForm(); ruleDraft();
 }
 
+// 按鈕送出期間鎖住，避免連按好幾次變成好幾份
+async function once(btn, fn) {
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = '儲存中…';
+  try { await fn(); } finally { btn.disabled = false; btn.textContent = label; }
+}
 async function saveRule() {
   const row = ruleForm();
   const flow = row.flow; delete row.flow;
