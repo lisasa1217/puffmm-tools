@@ -604,18 +604,57 @@ segBind('fStyle', () => { syncMode(); ruleDraft(); });
 ['f1Text', 'f1Btn', 'fAText', 'fBText', 'fBBtn'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
 
 // 「直接寫」模式：依序建好 A（給連結）→ B（沒追蹤）→ 第一則，把按鈕接起來
-async function buildFlow(name, f) {
-  const save = async row => { const { row: r } = await api('save', { table: 'ar_templates', row }); D.templates.unshift(r); return r; };
-  const A = await save({ name: `${name}｜給連結`, text: f.aText, buttons: f.links.map(l => ({ type: 'url', title: l.title.trim(), url: l.url.trim() })) });
-  if (f.style === 'direct') return A.id;
+// 「直接寫」模式存檔：有舊的就更新、沒有才新建；換成用不到的那幾則會刪掉
+async function buildFlow(name, f, ids = {}) {
+  const put = async (id, row) => {
+    const { row: r } = await api('save', { table: 'ar_templates', row: id ? { ...row, id } : row });
+    D.templates = [r, ...D.templates.filter(t => t.id !== r.id)];
+    return r;
+  };
+  const drop = async id => {
+    if (!id) return;
+    await api('delete', { table: 'ar_templates', id });
+    D.templates = D.templates.filter(t => t.id !== id);
+  };
+  const A = await put(ids.a, { name: `${name}｜給連結`, text: f.aText, buttons: f.links.map(l => ({ type: 'url', title: l.title.trim(), url: l.url.trim() })) });
+  if (f.style === 'direct') {
+    await drop(ids.f !== A.id ? ids.f : null);
+    await drop(ids.b);
+    return A.id;
+  }
   let B = null;
   if (f.style === 'gate') {
-    B = await save({ name: `${name}｜沒追蹤`, text: f.bText, buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id }] });
-    B = (await api('save', { table: 'ar_templates', row: { id: B.id, buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id, fail: B.id }] } })).row;
-    D.templates = D.templates.map(t => (t.id === B.id ? B : t));
+    B = await put(ids.b, { name: `${name}｜沒追蹤`, text: f.bText, buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id }] });
+    B = await put(B.id, { buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id, fail: B.id }] });
+  } else {
+    await drop(ids.b);
   }
-  const F = await save({ name: `${name}｜第一則`, text: f.f1Text, buttons: [{ type: f.style === 'gate' ? 'gate' : 'next', title: f.f1Btn.trim(), next: A.id, fail: B ? B.id : null }] });
+  const F = await put(ids.f, { name: `${name}｜第一則`, text: f.f1Text, buttons: [{ type: f.style === 'gate' ? 'gate' : 'next', title: f.f1Btn.trim(), next: A.id, fail: B ? B.id : null }] });
   return F.id;
+}
+// 把已存的規則還原成「直接寫」的三格（方式、文字、按鈕都帶回來）
+function flowFromRule(r) {
+  const T = id => D.templates.find(t => t.id === id);
+  const onlyUrl = t => (t.buttons || []).every(b => b.type === 'url');
+  const links = t => (t.buttons || []).map(b => ({ title: b.title || '', url: b.url || '' }));
+  const F = T(r.first_template_id);
+  if (!F) return null;
+  const b0 = (F.buttons || [])[0];
+  let flow;
+  if (!b0 || onlyUrl(F)) {
+    flow = { mode: 'write', style: 'direct', aText: F.text || '', links: links(F), ids: { a: F.id } };
+  } else {
+    const A = T(b0.next);
+    if (!A || !onlyUrl(A) || (F.buttons || []).length > 1) return null;   // 比較複雜的自己組的流程，就用範本模式編
+    const B = b0.type === 'gate' && b0.fail ? T(b0.fail) : null;
+    flow = { mode: 'write', style: b0.type === 'gate' ? 'gate' : 'button', f1Text: F.text || '', f1Btn: b0.title || '',
+      aText: A.text || '', links: links(A), ids: { f: F.id, a: A.id, b: B ? B.id : null } };
+    if (B) { flow.bText = B.text || ''; flow.bBtn = (B.buttons || [])[0]?.title || ''; }
+  }
+  // 範本如果也被別條規則用（例如複製來的），就不要動到它，存檔時另外建一份
+  const used = new Set(Object.values(flow.ids).filter(Boolean));
+  if (D.rules.some(x => x.id !== r.id && used.has(x.first_template_id))) flow.ids = {};
+  return flow;
 }
 function checkFlow(f) {
   const d = f.style === 'direct';
@@ -711,7 +750,9 @@ function editRule(id, preset) {
   $('reErr').textContent = '';
   $('ruleEdit').classList.remove('hidden');
   D.edit.snap = undefined;
-  setFlow(r.flow || { mode: id ? 'tpl' : 'write' });
+  const saved = id ? flowFromRule(D.rules.find(x => x.id === id)) : null;
+  D.edit.flowIds = saved ? saved.ids : {};
+  setFlow(r.flow || saved || { mode: id ? 'tpl' : 'write' });
   syncRuleForm();
   D.edit.snap = fromDraft ? '' : JSON.stringify(ruleForm());
   $('ruleEdit').scrollIntoView({ behavior: 'smooth' });
@@ -776,7 +817,7 @@ async function saveRule() {
     const err = checkFlow(flow);
     if (err) return $('reErr').textContent = err;
     if (row.trigger === 'comment' && !row.media_id && !confirm('沒有鎖定貼文，所有貼文出現這些字都會觸發，確定嗎？')) return;
-    try { row.first_template_id = await buildFlow(row.name, flow); }
+    try { row.first_template_id = await buildFlow(row.name, flow, D.edit.flowIds || {}); }
     catch (e) { return $('reErr').textContent = '建立訊息失敗：' + e.message; }
     renderTpls();
   }
