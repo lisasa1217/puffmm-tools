@@ -21,6 +21,15 @@ function validSig(raw, header) {
 
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
+// 公開回覆每小時上限（全帳號合計）：留言爆量時，短時間回幾百則很像的留言容易被當成機器人
+// Meta 沒公布門檻，60＝約一分鐘一則，保守值；超過的照樣私訊，只是不公開回
+const PUBLIC_PER_HOUR = 60;
+async function publicQuotaLeft() {
+  const since = new Date(Date.now() - 36e5).toISOString();
+  const rows = await db(`ar_events?kind=eq.public_reply&created_at=gte.${since}&select=id&limit=${PUBLIC_PER_HOUR}`);
+  return rows.length < PUBLIC_PER_HOUR;
+}
+
 // 送不出去：IG 暫時性問題就排進補發佇列，其他記成錯誤
 async function failed(e, base, item, what) {
   if (isRetryable(e)) {
@@ -86,7 +95,9 @@ async function onComment(v, ownerId, token) {
   await logEvent({ ...base, kind: 'trigger', keyword: kw });
 
   // 公開回覆（從回覆庫隨機挑）
-  if (rule.public_reply_ids?.length) {
+  if (rule.public_reply_ids?.length && !(await publicQuotaLeft())) {
+    await logEvent({ ...base, kind: 'public_skip', detail: `這小時已公開回覆 ${PUBLIC_PER_HOUR} 則，這則只私訊` });
+  } else if (rule.public_reply_ids?.length) {
     let msg = null;
     try {
       const rows = await db(`ar_public_replies?id=in.(${rule.public_reply_ids.join(',')})&select=text`);
@@ -117,9 +128,10 @@ async function username(id, token) {
   try { return (await ig(`/${id}?fields=username`, { token })).username; } catch (e) { return null; }
 }
 
-async function sendTemplate(userId, tplId, ruleId, token, base) {
-  const tpl = await template(tplId);
+async function sendTemplate(userId, tplId, ruleId, token, base, opt = {}) {
+  let tpl = await template(tplId);
   if (!tpl) return;
+  if (opt.noButtons) tpl = { ...tpl, buttons: [] };
   const msgs = buildMessages(tpl, { ruleId, userId });
   try {
     await sendTo({ id: userId }, msgs, token);
@@ -142,13 +154,9 @@ async function onMessage(m, ownerId, token) {
       let follows = false;
       try { follows = !!(await ig(`/${uid}?fields=is_user_follow_business`, { token })).is_user_follow_business; } catch (e) { /* 查不到當作沒追蹤 */ }
       await logEvent({ ...base, kind: follows ? 'follow_yes' : 'follow_no' });
-      if (follows) return sendTemplate(uid, p.m, p.r, token, base);
-      if (p.f) return sendTemplate(uid, p.f, p.r, token, base);
-      // 沒設「沒追蹤」範本時的預設回覆：同一顆按鈕再給一次
-      await sendTo({ id: uid }, [{ attachment: { type: 'template', payload: {
-        template_type: 'button', text: '還沒追蹤芙媽喔 🥺\n追蹤 @puff.andmom 之後，再按一次下面的按鈕就給你！',
-        buttons: [{ type: 'postback', title: '我追蹤好了！', payload: m.postback.payload }],
-      } } }], token);
+      // Meta 社群守則禁止「要追蹤才能拿到內容」→ 一律給連結；沒追蹤的人後面多一句邀請追蹤（不附按鈕）
+      await sendTemplate(uid, p.m, p.r, token, base);
+      if (!follows && p.f) await sendTemplate(uid, p.f, p.r, token, base, { noButtons: true });
       return;
     }
     if (p.k === 'next') return sendTemplate(uid, p.m, p.r, token, base);

@@ -273,7 +273,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
             <div class="seg" id="fStyle">
               <button data-v="direct" class="on">🔗 第一則就給連結</button>
               <button data-v="button">👆 先按按鈕再給</button>
-              <button data-v="gate">💗 有追蹤才給</button>
+              <button data-v="gate">💗 給連結＋邀請追蹤</button>
             </div>
             <div class="hint" id="fStyleHint"></div>
           </div>
@@ -292,13 +292,15 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
             <div class="hint" style="margin:-2px 0 8px">不加按鈕也可以：網址直接寫在上面的文字裡，客人點了一樣會打開。差別是按鈕比較醒目，而且後台才算得到點擊率。</div>
             <div id="fLinks"></div>
             <button class="btn small ghost" id="fAddLink" onclick="addLink()">＋ 加連結按鈕</button>
+            <label class="check" style="margin-top:12px"><input type="checkbox" id="fDirect"> 連結直接開啟（不經過 pufftool 轉址）</label>
+            <div class="hint">打勾：客人點按鈕直接打開你的網址，連結最乾淨，但後台算不到點擊率。<br>不打勾：先經過 pufftool 記一筆點擊再跳過去，客人感覺不出差別，後台看得到點擊率。</div>
           </div>
           <div class="flow" id="fBBox">
-            <h3><span class="no">3</span>沒追蹤 → 給這則</h3>
-            <textarea id="fBText">還沒追蹤芙媽喔 🥺
-追蹤 @puff.andmom 之後，再按一次下面的按鈕就給你！</textarea>
-            <div style="margin-top:8px"><label class="l">按鈕文字</label><input type="text" id="fBBtn" maxlength="20" value="我追蹤好了！"></div>
-            <div class="hint">客人追蹤完按這顆，系統會再查一次，有追蹤就自動給第 2 則。</div>
+            <h3><span class="no">3</span>還沒追蹤的人，收到連結後再多收到這句</h3>
+            <textarea id="fBText">喜歡的話順便追蹤 @puff.andmom 💛
+之後開團第一時間就看得到！</textarea>
+            <input type="hidden" id="fBBtn" value="">
+            <div class="hint">已經追蹤的人不會收到這句。不管有沒有追蹤，大家都拿得到連結（Meta 規定不能「追蹤才給」）。</div>
           </div>
         </div>
         <div class="pvcol">
@@ -424,7 +426,7 @@ function load(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e)
 
 const D = { rules: [], templates: [], replies: [], events: null, media: {}, edit: null, tedit: null };
 const TRIG = { comment: '💬 貼文留言', story: '📱 限動回覆', dm: '✉️ 私訊' };
-const KIND = { trigger: '觸發', dup: '重複略過', public_reply: '公開回覆', dm: '已私訊', button: '按按鈕', follow_yes: '有追蹤', follow_no: '沒追蹤', click: '點連結', error: '錯誤', queued: '排隊補發' };
+const KIND = { trigger: '觸發', dup: '重複略過', public_reply: '公開回覆', dm: '已私訊', button: '按按鈕', follow_yes: '有追蹤', follow_no: '沒追蹤', click: '點連結', error: '錯誤', queued: '排隊補發', public_skip: '只私訊（公開回覆滿額）' };
 
 async function api(action, body) {
   const r = await fetch('/api/ar-admin?action=' + action, {
@@ -474,8 +476,8 @@ function ruleNums(id) {
     trig: ev.filter(e => e.kind === 'trigger').length,
     sent,
     rate: sentU.size ? Math.round(clickU.size / sentU.size * 100) + '%' : '–',
-    stuck: [...no].filter(u => !yes.has(u)).length,
-    won: [...no].filter(u => yes.has(u)).length,
+    yes: yes.size,
+    no: [...no].filter(u => !yes.has(u)).length,
     err: ev.filter(e => e.kind === 'error').length,
   };
 }
@@ -495,7 +497,7 @@ function ruleCard(r) {
   const tags = [`<span class="pill">${TRIG_S[r.trigger]}</span>`];
   const ft = D.templates.find(x => x.id === r.first_template_id);
   const fb = (ft && ft.buttons) || [];
-  if (fb.some(b => b.type === 'gate')) tags.push('<span class="pill gate">追蹤才給</span>');
+  if (fb.some(b => b.type === 'gate')) tags.push('<span class="pill gate">邀請追蹤</span>');
   else if (fb.some(b => b.type === 'next')) tags.push('<span class="pill">按鈕後給</span>');
   else if (fb.some(b => b.type === 'url')) tags.push('<span class="pill time">直接給連結</span>');
   if (!r.active) tags.push('<span class="pill pause">暫停中</span>');
@@ -520,7 +522,7 @@ function ruleCard(r) {
     </div>
     <div class="kwl">關鍵字：${r.any_text ? '任何內容' : esc((r.keywords || []).join('、'))}${!r.any_text && r.fuzzy !== false ? ' <span style="color:var(--muted)">（含同音字）</span>' : ''}</div>
     ${warn.length ? `<div class="warn">⚠️ ${warn.join('；')}</div>` : ''}
-    <div class="nums">${n ? `<span>觸發<b>${n.trig}</b></span><span>已送<b>${n.sent}</b></span><span>點擊率<b>${n.rate}</b></span><span>卡在追蹤<b>${n.stuck}</b></span><span>因此追蹤<b>${n.won}</b></span>` : '數據讀取中…'}</div>
+    <div class="nums">${n ? `<span>觸發<b>${n.trig}</b></span><span>已送<b>${n.sent}</b></span><span>點擊率<b>${n.rate}</b></span>${n.yes + n.no ? `<span>有追蹤<b>${n.yes}</b></span><span>還沒追蹤<b>${n.no}</b></span>` : ''}` : '數據讀取中…'}</div>
     <div class="acts3">
       <button class="btn small ghost" onclick="toggleRule(${r.id})">${r.active ? '暫停' : '啟用'}</button>
       <button class="btn small ghost" onclick="copyRule(${r.id})">複製</button>
@@ -591,7 +593,7 @@ function ruleForm() {
 }
 function flowForm() {
   return { mode: segVal('reMode'), style: segVal('fStyle'), f1Text: $('f1Text').value, f1Btn: $('f1Btn').value, gate: $('fGate').checked,
-    aText: $('fAText').value, links: D.edit ? D.edit.links || [] : [], bText: $('fBText').value, bBtn: $('fBBtn').value };
+    aText: $('fAText').value, links: D.edit ? D.edit.links || [] : [], bText: $('fBText').value, bBtn: '', direct: $('fDirect').checked };
 }
 function setFlow(f) {
   f = f || {};
@@ -601,7 +603,7 @@ function setFlow(f) {
   segSet('fStyle', f.style || (f.gate === undefined ? 'direct' : f.gate ? 'gate' : 'button'));
   if (f.aText !== undefined) $('fAText').value = f.aText;
   if (f.bText !== undefined) $('fBText').value = f.bText;
-  if (f.bBtn !== undefined) $('fBBtn').value = f.bBtn;
+  $('fDirect').checked = !!f.direct;
   D.edit.links = JSON.parse(JSON.stringify(f.links || []));
   renderLinks(); syncMode();
 }
@@ -614,8 +616,8 @@ function syncMode() {
   $('fBox1').classList.toggle('hidden', st === 'direct');
   $('fBBox').classList.toggle('hidden', st !== 'gate');
   $('fANo').textContent = st === 'direct' ? '1' : '2';
-  $('fAHead').textContent = { direct: '客人觸發後，直接收到這則（介紹＋連結按鈕）', button: '按了按鈕 → 給這則（介紹＋連結按鈕）', gate: '有追蹤 → 給這則（介紹＋連結按鈕）' }[st];
-  $('fStyleHint').textContent = { direct: '最直接：客人一觸發就收到介紹和連結按鈕，不用多按一步。', button: '第一則先打招呼、放一顆按鈕，客人按了才給連結（多一步互動，對話也會正式打開）。', gate: '客人按按鈕時系統先查有沒有追蹤你，有追蹤才給連結，沒追蹤就請他先追蹤。' }[st];
+  $('fAHead').textContent = { direct: '客人觸發後，直接收到這則（介紹＋連結按鈕）', button: '按了按鈕 → 給這則（介紹＋連結按鈕）', gate: '按了按鈕 → 給這則（介紹＋連結按鈕，大家都拿得到）' }[st];
+  $('fStyleHint').textContent = { direct: '最直接：客人一觸發就收到介紹和連結按鈕，不用多按一步。', button: '第一則先打招呼、放一顆按鈕，客人按了才給連結（多一步互動，對話也會正式打開）。', gate: '大家按了按鈕都拿得到連結；還沒追蹤的人，會再多收到一句邀請追蹤的話。（Meta 規定不能「追蹤才給」，這樣最安全）' }[st];
   rulePreview();
 }
 function renderLinks() {
@@ -633,7 +635,8 @@ function renderLinks() {
 function addLink() { D.edit.links.push({ title: '', url: '' }); renderLinks(); ruleDraft(); }
 segBind('reMode', () => { syncMode(); ruleDraft(); });
 segBind('fStyle', () => { syncMode(); ruleDraft(); });
-['f1Text', 'f1Btn', 'fAText', 'fBText', 'fBBtn'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
+['f1Text', 'f1Btn', 'fAText', 'fBText'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
+$('fDirect').addEventListener('change', () => ruleDraft());
 
 // 「直接寫」模式：依序建好 A（給連結）→ B（沒追蹤）→ 第一則，把按鈕接起來
 // 「直接寫」模式存檔：有舊的就更新、沒有才新建；換成用不到的那幾則會刪掉
@@ -648,7 +651,7 @@ async function buildFlow(name, f, ids = {}) {
     await api('delete', { table: 'ar_templates', id });
     D.templates = D.templates.filter(t => t.id !== id);
   };
-  const A = await put(ids.a, { name: `${name}｜給連結`, text: f.aText, buttons: f.links.map(l => ({ type: 'url', title: l.title.trim(), url: l.url.trim() })) });
+  const A = await put(ids.a, { name: `${name}｜給連結`, text: f.aText, buttons: f.links.map(l => ({ type: 'url', title: l.title.trim(), url: l.url.trim(), ...(f.direct ? { direct: true } : {}) })) });
   if (f.style === 'direct') {
     await drop(ids.f !== A.id ? ids.f : null);
     await drop(ids.b);
@@ -656,8 +659,7 @@ async function buildFlow(name, f, ids = {}) {
   }
   let B = null;
   if (f.style === 'gate') {
-    B = await put(ids.b, { name: `${name}｜沒追蹤`, text: f.bText, buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id }] });
-    B = await put(B.id, { buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id, fail: B.id }] });
+    B = await put(ids.b, { name: `${name}｜邀請追蹤`, text: f.bText, buttons: [] });
   } else {
     await drop(ids.b);
   }
@@ -674,14 +676,15 @@ function flowFromRule(r) {
   const b0 = (F.buttons || [])[0];
   let flow;
   if (!b0 || onlyUrl(F)) {
-    flow = { mode: 'write', style: 'direct', aText: F.text || '', links: links(F), ids: { a: F.id } };
+    flow = { mode: 'write', style: 'direct', aText: F.text || '', links: links(F), direct: (F.buttons || []).some(b => b.direct), ids: { a: F.id } };
   } else {
     const A = T(b0.next);
     if (!A || !onlyUrl(A) || (F.buttons || []).length > 1) return null;   // 比較複雜的自己組的流程，就用範本模式編
     const B = b0.type === 'gate' && b0.fail ? T(b0.fail) : null;
     flow = { mode: 'write', style: b0.type === 'gate' ? 'gate' : 'button', f1Text: F.text || '', f1Btn: b0.title || '',
       aText: A.text || '', links: links(A), ids: { f: F.id, a: A.id, b: B ? B.id : null } };
-    if (B) { flow.bText = B.text || ''; flow.bBtn = (B.buttons || [])[0]?.title || ''; }
+    if (B) flow.bText = B.text || '';
+    flow.direct = (A.buttons || []).some(b => b.direct);
   }
   // 範本如果也被別條規則用（例如複製來的），就不要動到它，存檔時另外建一份
   const used = new Set(Object.values(flow.ids).filter(Boolean));
@@ -698,7 +701,7 @@ function checkFlow(f) {
     if (!l.title.trim()) return '每顆連結按鈕都要有文字';
     if (!/^https?:\/\//.test(l.url.trim())) return `「${l.title}」要填 https:// 開頭的網址`;
   }
-  if (f.style === 'gate' && (!f.bText.trim() || !f.bBtn.trim())) return '第 3 則（沒追蹤）要有內容和按鈕文字';
+  if (f.style === 'gate' && !f.bText.trim()) return '第 3 格（邀請追蹤的話）要寫內容';
   return '';
 }
 
@@ -746,9 +749,9 @@ function rulePreview() {
     h += `<div class="pv-step">✉️ 私訊（觸發後直接收到）</div>` + bub(f.aText, f.links.map(l => l.title));
   } else {
     h += `<div class="pv-step">✉️ 私訊第 1 則</div>` + bub(f.f1Text, [f.f1Btn]);
-    h += `<div class="pv-step">${f.style === 'gate' ? '👉 按了按鈕，而且有追蹤' : '👉 按了按鈕'}</div>` + bub(f.aText, f.links.map(l => l.title));
+    h += `<div class="pv-step">👉 按了按鈕（大家都會收到）</div>` + bub(f.aText, f.links.map(l => l.title));
   }
-  if (f.style === 'gate') h += `<div class="pv-step">👉 按了按鈕，但沒追蹤</div>` + bub(f.bText, [f.bBtn]);
+  if (f.style === 'gate') h += `<div class="pv-step">👉 還沒追蹤的人，接著多收到這句</div>` + bub(f.bText, []);
   $('rePreview').innerHTML = h;
 }
 
@@ -806,7 +809,7 @@ async function syncRuleForm() {
   $('reCooldownField').classList.toggle('hidden', t === 'comment');
   $('reTargetField').classList.toggle('hidden', t === 'dm');
   $('reTplHint').textContent = t === 'comment'
-    ? 'IG 規定每則留言只能私訊一次，所以圖片會略過；要多聊幾句或查追蹤，就選「先按按鈕再給」或「有追蹤才給」。'
+    ? 'IG 規定每則留言只能私訊一次，所以圖片會略過；要多聊幾句或查追蹤，就選「先按按鈕再給」或「給連結＋邀請追蹤」。'
     : '客人回覆限動／私訊後 24 小時內都能傳，第一則就可以放連結按鈕和圖片。';
   $('reTargetLabel').textContent = t === 'story' ? '哪一則限動（只會列出 24 小時內的限動）' : '哪一篇貼文';
   $('reTargetHint').textContent = t === 'story' ? '選「全部限動」＝任何一則限動被回覆都會檢查關鍵字。' : '選「全部貼文」＝任何貼文都會檢查（不建議，容易亂觸發）。';
@@ -888,7 +891,7 @@ async function delRow(table, id) {
 }
 
 /* ---------- 範本 ---------- */
-const BTYPE = { url: '🔗 開連結', next: '➡️ 傳下一則', gate: '💗 有追蹤才給' };
+const BTYPE = { url: '🔗 開連結', next: '➡️ 傳下一則', gate: '💗 按了查追蹤（沒追蹤的多收邀請）' };
 function renderTpls() {
   $('tplList').innerHTML = `<div class="card">
     <div class="row-head"><div><h2>私訊範本</h2><div class="sub" style="margin:0">存好的訊息，規則和按鈕都能重複使用</div></div>
@@ -945,8 +948,8 @@ function renderBtns() {
     <select onchange="setB(${i},'type',this.value)">${Object.entries(BTYPE).map(([k, v]) => `<option value="${k}" ${b.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
     <input type="text" maxlength="20" placeholder="按鈕文字，例如：想買！點我！" value="${esc(b.title || '')}" oninput="setB(${i},'title',this.value)">
     ${b.type === 'url' ? `<input class="full" type="url" placeholder="https://reurl.cc/..." value="${esc(b.url || '')}" oninput="setB(${i},'url',this.value)">` : ''}
-    ${b.type !== 'url' ? `<label class="l full" style="margin:0">${b.type === 'gate' ? '有追蹤的話傳' : '按了之後傳'}</label><select class="full" onchange="setB(${i},'next',+this.value||null)">${tplOptions(b.next, D.tedit.id)}</select>` : ''}
-    ${b.type === 'gate' ? `<label class="l full" style="margin:0">沒追蹤的話傳（不選＝預設「追蹤後再按一次」）</label><select class="full" onchange="setB(${i},'fail',+this.value||null)">${tplOptions(b.fail, D.tedit.id)}</select>` : ''}
+    ${b.type !== 'url' ? `<label class="l full" style="margin:0">${b.type === 'gate' ? '按了之後傳（大家都收到）' : '按了之後傳'}</label><select class="full" onchange="setB(${i},'next',+this.value||null)">${tplOptions(b.next, D.tedit.id)}</select>` : ''}
+    ${b.type === 'gate' ? `<label class="l full" style="margin:0">還沒追蹤的人，另外多收到（選填，例如邀請追蹤的話）</label><select class="full" onchange="setB(${i},'fail',+this.value||null)">${tplOptions(b.fail, D.tedit.id)}</select>` : ''}
     <div class="full mv">
       <button class="btn small ghost" ${i === 0 ? 'disabled' : ''} onclick="moveB(${i},-1)">⬆️ 往上</button>
       <button class="btn small ghost" ${i === bs.length - 1 ? 'disabled' : ''} onclick="moveB(${i},1)">⬇️ 往下</button>
