@@ -289,11 +289,9 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
             <h3><span class="no" id="fANo">2</span><span id="fAHead">有追蹤 → 給這則（團購介紹＋連結）</span></h3>
             <textarea id="fAText" placeholder="✨ KC SKIN 水凝多泌面膜 (~10/5)&#10;十月精華液就漲價囉～把握！"></textarea>
             <label class="l" style="margin-top:10px">連結按鈕（選填，最多 3 顆）</label>
-            <div class="hint" style="margin:-2px 0 8px">不加按鈕也可以：網址直接寫在上面的文字裡，客人點了一樣會打開。差別是按鈕比較醒目，而且後台才算得到點擊率。</div>
+            <div class="hint" style="margin:-2px 0 8px">不加按鈕也可以：網址直接寫在上面的文字裡，客人點了一樣會打開。差別是按鈕比較醒目，而且後台才算得到點擊率。網址貼原本的就好，不用先縮短。</div>
             <div id="fLinks"></div>
             <button class="btn small ghost" id="fAddLink" onclick="addLink()">＋ 加連結按鈕</button>
-            <label class="check" style="margin-top:12px"><input type="checkbox" id="fDirect"> 連結直接開啟（不經過 pufftool 轉址）</label>
-            <div class="hint">打勾：客人點按鈕直接打開你的網址，連結最乾淨，但後台算不到點擊率。<br>不打勾：先經過 pufftool 記一筆點擊再跳過去，客人感覺不出差別，後台看得到點擊率。</div>
           </div>
           <div class="flow" id="fBBox">
             <h3><span class="no">3</span>還沒追蹤的人，收到連結後再多收到這句</h3>
@@ -593,7 +591,7 @@ function ruleForm() {
 }
 function flowForm() {
   return { mode: segVal('reMode'), style: segVal('fStyle'), f1Text: $('f1Text').value, f1Btn: $('f1Btn').value, gate: $('fGate').checked,
-    aText: $('fAText').value, links: D.edit ? D.edit.links || [] : [], bText: $('fBText').value, bBtn: '', direct: $('fDirect').checked };
+    aText: $('fAText').value, links: D.edit ? D.edit.links || [] : [], bText: $('fBText').value, bBtn: '' };
 }
 function setFlow(f) {
   f = f || {};
@@ -603,7 +601,6 @@ function setFlow(f) {
   segSet('fStyle', f.style || (f.gate === undefined ? 'direct' : f.gate ? 'gate' : 'button'));
   if (f.aText !== undefined) $('fAText').value = f.aText;
   if (f.bText !== undefined) $('fBText').value = f.bText;
-  $('fDirect').checked = !!f.direct;
   D.edit.links = JSON.parse(JSON.stringify(f.links || []));
   renderLinks(); syncMode();
 }
@@ -636,7 +633,6 @@ function addLink() { D.edit.links.push({ title: '', url: '' }); renderLinks(); r
 segBind('reMode', () => { syncMode(); ruleDraft(); });
 segBind('fStyle', () => { syncMode(); ruleDraft(); });
 ['f1Text', 'f1Btn', 'fAText', 'fBText'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
-$('fDirect').addEventListener('change', () => ruleDraft());
 
 // 「直接寫」模式：依序建好 A（給連結）→ B（沒追蹤）→ 第一則，把按鈕接起來
 // 「直接寫」模式存檔：有舊的就更新、沒有才新建；換成用不到的那幾則會刪掉
@@ -651,7 +647,7 @@ async function buildFlow(name, f, ids = {}) {
     await api('delete', { table: 'ar_templates', id });
     D.templates = D.templates.filter(t => t.id !== id);
   };
-  const A = await put(ids.a, { name: `${name}｜給連結`, text: f.aText, buttons: f.links.map(l => ({ type: 'url', title: l.title.trim(), url: l.url.trim(), ...(f.direct ? { direct: true } : {}) })) });
+  const A = await put(ids.a, { name: `${name}｜給連結`, text: f.aText, buttons: f.links.map(l => ({ type: 'url', title: l.title.trim(), url: l.url.trim() })) });
   if (f.style === 'direct') {
     await drop(ids.f !== A.id ? ids.f : null);
     await drop(ids.b);
@@ -676,7 +672,7 @@ function flowFromRule(r) {
   const b0 = (F.buttons || [])[0];
   let flow;
   if (!b0 || onlyUrl(F)) {
-    flow = { mode: 'write', style: 'direct', aText: F.text || '', links: links(F), direct: (F.buttons || []).some(b => b.direct), ids: { a: F.id } };
+    flow = { mode: 'write', style: 'direct', aText: F.text || '', links: links(F), ids: { a: F.id } };
   } else {
     const A = T(b0.next);
     if (!A || !onlyUrl(A) || (F.buttons || []).length > 1) return null;   // 比較複雜的自己組的流程，就用範本模式編
@@ -684,7 +680,6 @@ function flowFromRule(r) {
     flow = { mode: 'write', style: b0.type === 'gate' ? 'gate' : 'button', f1Text: F.text || '', f1Btn: b0.title || '',
       aText: A.text || '', links: links(A), ids: { f: F.id, a: A.id, b: B ? B.id : null } };
     if (B) flow.bText = B.text || '';
-    flow.direct = (A.buttons || []).some(b => b.direct);
   }
   // 範本如果也被別條規則用（例如複製來的），就不要動到它，存檔時另外建一份
   const used = new Set(Object.values(flow.ids).filter(Boolean));
