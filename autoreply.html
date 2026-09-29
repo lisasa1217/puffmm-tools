@@ -273,7 +273,6 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
             <div class="seg" id="fStyle">
               <button data-v="direct" class="on">🔗 第一則就給連結</button>
               <button data-v="button">👆 先按按鈕再給</button>
-              <button data-v="gate">💗 給連結＋邀請追蹤</button>
             </div>
             <div class="hint" id="fStyleHint"></div>
           </div>
@@ -282,7 +281,8 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
             <textarea id="f1Text">嗨嗨～謝謝你留言 💛
 點下面的按鈕拿連結 👇</textarea>
             <div style="margin-top:8px"><label class="l">按鈕文字（最多 20 字）</label><input type="text" id="f1Btn" maxlength="20" value="🔗 給我連結"></div>
-            <input type="checkbox" id="fGate" hidden>
+            <label class="check" style="margin-top:12px"><input type="checkbox" id="fGate" checked> 💗 還沒追蹤的人，拿到連結後多收一句邀請追蹤</label>
+            <div class="hint">已經追蹤的人不會收到。不管有沒有追蹤，大家都拿得到連結（Meta 規定不能「追蹤才給」）。</div>
             <div class="arrow">↓ 客人按下按鈕後</div>
           </div>
           <div class="flow">
@@ -294,11 +294,11 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
             <button class="btn small ghost" id="fAddLink" onclick="addLink()">＋ 加連結按鈕</button>
           </div>
           <div class="flow" id="fBBox">
-            <h3><span class="no">3</span>還沒追蹤的人，收到連結後再多收到這句</h3>
+            <h3><span class="no">3</span>💗 還沒追蹤的人，拿到連結後多收到這句</h3>
             <textarea id="fBText">喜歡的話順便追蹤 @puff.andmom 💛
 之後開團第一時間就看得到！</textarea>
             <input type="hidden" id="fBBtn" value="">
-            <div class="hint">已經追蹤的人不會收到這句。不管有沒有追蹤，大家都拿得到連結（Meta 規定不能「追蹤才給」）。</div>
+            <div class="hint">不想要的話，回到第 1 格把「💗 還沒追蹤的人…」的勾取消。</div>
           </div>
         </div>
         <div class="pvcol">
@@ -590,7 +590,7 @@ function ruleForm() {
   };
 }
 function flowForm() {
-  return { mode: segVal('reMode'), style: segVal('fStyle'), f1Text: $('f1Text').value, f1Btn: $('f1Btn').value, gate: $('fGate').checked,
+  return { mode: segVal('reMode'), style: segVal('fStyle') === 'button' && $('fGate').checked ? 'gate' : segVal('fStyle'), f1Text: $('f1Text').value, f1Btn: $('f1Btn').value, gate: $('fGate').checked,
     aText: $('fAText').value, links: D.edit ? D.edit.links || [] : [], bText: $('fBText').value, bBtn: '' };
 }
 function setFlow(f) {
@@ -598,7 +598,9 @@ function setFlow(f) {
   segSet('reMode', f.mode || 'write');
   if (f.f1Text !== undefined) $('f1Text').value = f.f1Text;
   if (f.f1Btn !== undefined) $('f1Btn').value = f.f1Btn;
-  segSet('fStyle', f.style || (f.gate === undefined ? 'direct' : f.gate ? 'gate' : 'button'));
+  const st0 = f.style || (f.gate === undefined ? 'direct' : f.gate ? 'gate' : 'button');
+  segSet('fStyle', st0 === 'gate' ? 'button' : st0);
+  $('fGate').checked = st0 !== 'button';   // 預設打勾；只有原本就是「先按按鈕、不邀請」的才不勾
   if (f.aText !== undefined) $('fAText').value = f.aText;
   if (f.bText !== undefined) $('fBText').value = f.bText;
   D.edit.links = JSON.parse(JSON.stringify(f.links || []));
@@ -608,13 +610,12 @@ function syncMode() {
   const w = segVal('reMode') === 'write';
   $('reWrite').classList.toggle('hidden', !w);
   $('reTplWrap').classList.toggle('hidden', w);
-  const st = segVal('fStyle');
-  $('fGate').checked = st === 'gate';
+  const st = segVal('fStyle') === 'button' && $('fGate').checked ? 'gate' : segVal('fStyle');
   $('fBox1').classList.toggle('hidden', st === 'direct');
   $('fBBox').classList.toggle('hidden', st !== 'gate');
   $('fANo').textContent = st === 'direct' ? '1' : '2';
-  $('fAHead').textContent = { direct: '客人觸發後，直接收到這則（介紹＋連結按鈕）', button: '按了按鈕 → 給這則（介紹＋連結按鈕）', gate: '按了按鈕 → 給這則（介紹＋連結按鈕，大家都拿得到）' }[st];
-  $('fStyleHint').textContent = { direct: '最直接：客人一觸發就收到介紹和連結按鈕，不用多按一步。', button: '第一則先打招呼、放一顆按鈕，客人按了才給連結（多一步互動，對話也會正式打開）。', gate: '大家按了按鈕都拿得到連結；還沒追蹤的人，會再多收到一句邀請追蹤的話。（Meta 規定不能「追蹤才給」，這樣最安全）' }[st];
+  $('fAHead').textContent = { direct: '客人觸發後，直接收到這則（介紹＋連結按鈕）', button: '按了按鈕 → 給這則（介紹＋連結按鈕）', gate: '按了按鈕 → 給這則（介紹＋連結按鈕）' }[st];
+  $('fStyleHint').textContent = { direct: '最直接：客人一觸發就收到介紹和連結按鈕，不用多按一步。', button: '第一則先打招呼、放一顆按鈕，客人按了才給連結（多一步互動，對話也會正式打開）。', gate: '第一則先打招呼、放一顆按鈕，客人按了才給連結（多一步互動，對話也會正式打開）。' }[st];
   rulePreview();
 }
 function renderLinks() {
@@ -632,6 +633,7 @@ function renderLinks() {
 function addLink() { D.edit.links.push({ title: '', url: '' }); renderLinks(); ruleDraft(); }
 segBind('reMode', () => { syncMode(); ruleDraft(); });
 segBind('fStyle', () => { syncMode(); ruleDraft(); });
+$('fGate').addEventListener('change', () => { syncMode(); ruleDraft(); });
 ['f1Text', 'f1Btn', 'fAText', 'fBText'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
 
 // 「直接寫」模式：依序建好 A（給連結）→ B（沒追蹤）→ 第一則，把按鈕接起來
@@ -804,7 +806,7 @@ async function syncRuleForm() {
   $('reCooldownField').classList.toggle('hidden', t === 'comment');
   $('reTargetField').classList.toggle('hidden', t === 'dm');
   $('reTplHint').textContent = t === 'comment'
-    ? 'IG 規定每則留言只能私訊一次，所以圖片會略過；要多聊幾句或查追蹤，就選「先按按鈕再給」或「給連結＋邀請追蹤」。'
+    ? 'IG 規定每則留言只能私訊一次，所以圖片會略過；要多聊幾句或查追蹤，就選「先按按鈕再給」。'
     : '客人回覆限動／私訊後 24 小時內都能傳，第一則就可以放連結按鈕和圖片。';
   $('reTargetLabel').textContent = t === 'story' ? '哪一則限動（只會列出 24 小時內的限動）' : '哪一篇貼文';
   $('reTargetHint').textContent = t === 'story' ? '選「全部限動」＝任何一則限動被回覆都會檢查關鍵字。' : '選「全部貼文」＝任何貼文都會檢查（不建議，容易亂觸發）。';
