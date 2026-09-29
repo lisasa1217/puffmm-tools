@@ -139,6 +139,13 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   .flow .arrow { font-size:12.5px; color: var(--muted); margin: 6px 0 12px; }
   .link-row { display:grid; grid-template-columns: 1fr 1.6fr auto; gap:8px; margin-bottom:8px; }
   .reply input { flex:1; }
+  .wgrid { display:grid; grid-template-columns: 1fr 320px; gap:22px; align-items:start; }
+  .pvcol { position: sticky; top: 16px; }
+  .pv-step { font-size:11.5px; color: var(--muted); margin: 12px 0 6px; }
+  .pv-step:first-child { margin-top:0; }
+  .pv-cmt { font-size:13px; background:#f7f3ee; padding:8px 10px; line-height:1.5; }
+  .pv-cmt b { font-weight:700; }
+  @media (max-width: 800px) { .wgrid { grid-template-columns: 1fr; } .pvcol { position: static; } }
   .rcards { display:grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap:14px; }
   .rc { background:#fffdf4; padding:16px; box-shadow: 0 0 0 2px #6a5153; display:flex; flex-direction:column; gap:10px; }
   .rc.off { opacity:.62; }
@@ -236,7 +243,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           <div class="hint" id="reTplHint"></div>
         </div>
 
-        <div id="reWrite">
+        <div id="reWrite" class="wgrid"><div>
           <div class="flow">
             <h3><span class="no">1</span>客人觸發後，先收到這則</h3>
             <textarea id="f1Text">嗨嗨～謝謝你留言 💛
@@ -259,6 +266,11 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
             <div style="margin-top:8px"><label class="l">按鈕文字</label><input type="text" id="fBBtn" maxlength="20" value="我追蹤好了！"></div>
             <div class="hint">客人追蹤完按這顆，系統會再查一次，有追蹤就自動給第 2 則。</div>
           </div>
+        </div>
+        <div class="pvcol">
+          <label class="l">📱 IG 預覽（客人會看到的樣子）</label>
+          <div class="phone" id="rePreview"></div>
+        </div>
         </div>
 
         <div class="field hidden" id="reTplWrap">
@@ -538,6 +550,7 @@ function syncMode() {
   const g = $('fGate').checked;
   $('fBBox').classList.toggle('hidden', !g);
   $('fAHead').textContent = g ? '有追蹤 → 給這則（團購介紹＋連結）' : '按了按鈕 → 給這則（團購介紹＋連結）';
+  rulePreview();
 }
 function renderLinks() {
   const ls = D.edit.links;
@@ -547,6 +560,7 @@ function renderLinks() {
     <button class="btn small danger" onclick="D.edit.links.splice(${i},1);renderLinks();ruleDraft()">移除</button>
   </div>`).join('');
   $('fAddLink').classList.toggle('hidden', ls.length >= 3);
+  rulePreview();
 }
 function addLink() { D.edit.links.push({ title: '', url: '' }); renderLinks(); ruleDraft(); }
 segBind('reMode', () => { syncMode(); ruleDraft(); });
@@ -605,8 +619,28 @@ function clearDT(p) { $(p + 'D').value = ''; $(p + 'T').value = ''; ruleDraft();
 ['reStartD', 'reStartT', 'reEndD', 'reEndT'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
 segBind('reState', () => { $('reActive').checked = segVal('reState') === 'on'; ruleDraft(); });
 
+// 直接寫模式的 IG 預覽：照客人收到的順序排
+function rulePreview() {
+  if (!$('rePreview') || !D.edit) return;
+  const f = flowForm();
+  const bub = (text, btns) => `<div class="bubble">${esc(text.trim()) || '<span style="color:#999">（還沒寫內容）</span>'}${btns.map(b => `<span class="bb">${esc(b || '按鈕')}</span>`).join('')}</div>`;
+  let h = '';
+  if (segVal('reTrigger') === 'comment') {
+    const picked = [...$('rePublic').querySelectorAll('input:checked')].map(x => D.replies.find(r => r.id === +x.value)?.text).filter(Boolean);
+    h += `<div class="pv-step">💬 你在留言底下回（每次隨機挑一句）</div>`;
+    h += picked.length ? `<div class="pv-cmt"><b>puff.andmom</b> ${esc(picked[0].replace(/\{name\}/g, '@客人'))}</div>` : '<div class="pv-cmt" style="color:#999">（沒有勾公開回覆）</div>';
+  }
+  h += `<div class="pv-step">✉️ 私訊第 1 則</div>` + bub(f.f1Text, [f.f1Btn]);
+  h += `<div class="pv-step">${f.gate ? '👉 按了按鈕，而且有追蹤' : '👉 按了按鈕'}</div>` + bub(f.aText, f.links.map(l => l.title));
+  if (f.gate) h += `<div class="pv-step">👉 按了按鈕，但沒追蹤</div>` + bub(f.bText, [f.bBtn]);
+  $('rePreview').innerHTML = h;
+}
+
 function ruleDirty() { return !!D.edit && D.edit.snap !== undefined && JSON.stringify(ruleForm()) !== D.edit.snap; }
-function ruleDraft() { if (D.edit && D.edit.snap !== undefined) store('ar_draft_rule', ruleForm()); }
+function ruleDraft() {
+  rulePreview();
+  if (D.edit && D.edit.snap !== undefined) store('ar_draft_rule', ruleForm());
+}
 function editRule(id, preset) {
   if (ruleDirty() && !confirm('正在編輯的規則還沒儲存，確定要放棄嗎？')) return;
   let r = preset || (id ? D.rules.find(x => x.id === id) : { trigger: 'comment', keywords: [], fuzzy: true, public_reply_ids: [], cooldown_hours: 24, active: true });
