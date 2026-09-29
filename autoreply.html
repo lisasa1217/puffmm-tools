@@ -127,6 +127,18 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   }
   body select:hover { background-color: #fff1dc !important; }
   .bt .mv { display:flex; gap:6px; }
+  /* iPhone 式滑動開關 */
+  .switch-row { display:inline-flex; align-items:center; gap:12px; cursor:pointer; font-size:15px; font-weight:700; color:#6a5153; }
+  .switch { position:relative; width:52px; height:32px; flex-shrink:0; }
+  .switch input { position:absolute; opacity:0; width:0; height:0; }
+  .switch .knob { position:absolute; inset:0; background:#d9cfc6; border-radius:999px !important; transition: background .2s; }
+  .switch .knob::before { content:''; position:absolute; width:26px; height:26px; left:3px; top:3px; background:#fff; border-radius:50% !important; box-shadow: 0 2px 4px rgba(0,0,0,.25); transition: transform .2s; }
+  .switch input:checked + .knob { background:#34c759; }
+  .switch input:checked + .knob::before { transform: translateX(20px); }
+  .switch input:focus-visible + .knob { outline: 2px solid #f6b3c8; outline-offset: 2px; }
+  /* 選項按鈕：選中的那格要一眼看得出來 */
+  body .seg button { color:#9b8080 !important; }
+  body .seg button.on { background:#f6b3c8 !important; color:#fff !important; font-weight:800; box-shadow: inset 0 -3px 0 0 rgba(106,81,83,.25) !important; }
   body input[type=date], body input[type=time] {
     width:100%; padding:9px 10px; font-size:14px; font-family:inherit; color:#6a5153; background:#fffdf2; border:0; cursor:pointer;
     box-shadow: 0 -2px 0 0 #6a5153, 0 2px 0 0 #6a5153, -2px 0 0 0 #6a5153, 2px 0 0 0 #6a5153; margin:2px; outline:none;
@@ -137,7 +149,11 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   .flow h3 .no { display:inline-block; min-width:26px; height:26px; line-height:26px; text-align:center; background:#f6b3c8; color:#fff; margin-right:6px; font-size:13px; }
   .flow textarea { min-height: 90px; }
   .flow .arrow { font-size:12.5px; color: var(--muted); margin: 6px 0 12px; }
-  .link-row { display:grid; grid-template-columns: 1fr 1.6fr auto; gap:8px; margin-bottom:8px; }
+  .link-card { background:#fff7ef; padding:12px 14px 14px; margin-bottom:10px; box-shadow: 0 0 0 2px #eadbcf; }
+  .lc-head { display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:800; color:#6a5153; margin-bottom:4px; }
+  .lc-head a { font-size:12px; font-weight:700; color:#d9545b; text-decoration:none; }
+  .lc-lab { font-size:12px; color: var(--muted); margin:8px 0 4px; }
+  .link-card input { width:100%; }
   .reply input { flex:1; }
   .wgrid { display:grid; grid-template-columns: 1fr 320px; gap:22px; align-items:start; }
   .pvcol { position: sticky; top: 16px; }
@@ -164,7 +180,10 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   .rc .nums b { color:#5f4649; font-size:14px; margin-left:3px; }
   .rc .acts3 { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
   .sched { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-  .dt { display:grid; grid-template-columns: 1.3fr 1fr auto; gap:8px; align-items:center; }
+  .dt { display:grid; grid-template-columns: 1.4fr 1fr; gap:10px; align-items:center; }
+  .dt-lab { font-size:13px; font-weight:700; color:#6a5153; margin-bottom:6px; }
+  .dt-lab span { font-weight:400; color: var(--muted); font-size:12px; }
+  .dt-lab a { float:right; font-size:12px; font-weight:700; color:#d9545b; text-decoration:none; }
   .dt input { min-width:0; }
   @media (max-width: 800px) {
     .rcards { grid-template-columns: 1fr; }
@@ -174,10 +193,9 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
     .tabs .chip.on { background:#fde2ea; }
     .wrap { padding-bottom: 90px !important; }
     .sched { grid-template-columns: 1fr; }
-    .dt { grid-template-columns: 1fr auto; }
-    .dt input[type=date] { grid-column: 1 / -1; }
+    .dt { grid-template-columns: 1.4fr 1fr; }
   }
-  @media (max-width: 800px) { .link-row { grid-template-columns: 1fr; } }
+
 </style>
 </head>
 <body>
@@ -290,12 +308,12 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           <label class="l">⏰ 自動排程（選填）：只在這段時間內回覆</label>
           <div class="sched">
             <div>
-              <div class="hint" style="margin:0 0 4px">從什麼時候開始（不填＝馬上開始）</div>
-              <div class="dt"><input type="date" id="reStartD"><input type="time" id="reStartT"><button class="btn small ghost" onclick="clearDT('reStart')">清除</button></div>
+              <div class="dt-lab">從什麼時候開始<span>（不填＝馬上開始）</span><a href="#" onclick="clearDT('reStart');return false">清除</a></div>
+              <div class="dt"><input type="date" id="reStartD"><input type="time" id="reStartT"></div>
             </div>
             <div>
-              <div class="hint" style="margin:0 0 4px">到什麼時候結束（不填＝一直回覆）</div>
-              <div class="dt"><input type="date" id="reEndD"><input type="time" id="reEndT"><button class="btn small ghost" onclick="clearDT('reEnd')">清除</button></div>
+              <div class="dt-lab">到什麼時候結束<span>（不填＝一直回覆）</span><a href="#" onclick="clearDT('reEnd');return false">清除</a></div>
+              <div class="dt"><input type="date" id="reEndD"><input type="time" id="reEndT"></div>
             </div>
           </div>
           <div class="hint">例如團購 10/1 開團、10/5 結團就填進去，時間到自動開始、自動停止，不用記得回來開關。</div>
@@ -305,13 +323,12 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           <div style="display:flex;gap:8px;align-items:center"><input type="number" id="reCooldown" min="0" value="24" style="width:90px"> <span style="font-size:13px">小時</span></div>
         </div>
         <div class="field">
-          <label class="l">狀態</label>
-          <div class="seg" id="reState" style="max-width:360px">
-            <button data-v="on" class="on">▶️ 開啟</button>
-            <button data-v="off">⏸ 暫停</button>
-          </div>
-          <div class="hint">手動開關：想臨時停掉（例如連結貼錯）就選暫停，規則會保留。開啟＋有排程＝只在排程時間內回覆。</div>
-          <input type="checkbox" id="reActive" checked hidden>
+          <label class="l">自動回覆開關</label>
+          <label class="switch-row">
+            <span class="switch"><input type="checkbox" id="reActive" checked><span class="knob"></span></span>
+            <span id="reActiveText">開啟中</span>
+          </label>
+          <div class="hint">想臨時停掉（例如連結貼錯）就關掉，規則會保留。開著＋有排程＝只在排程時間內回覆。</div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" onclick="saveRule()">儲存</button>
@@ -533,7 +550,7 @@ function ruleForm() {
     public_reply_ids: [...$('rePublic').querySelectorAll('input:checked')].map(x => +x.value),
     first_template_id: +$('reTemplate').value || null,
     cooldown_hours: Math.max(0, parseInt($('reCooldown').value) || 0),
-    active: segVal('reState') === 'on',
+    active: $('reActive').checked,
     any_text: $('reAny').checked,
     starts_at: getDT('reStart', '00:00'),
     ends_at: getDT('reEnd', '23:59'),
@@ -571,10 +588,12 @@ function syncMode() {
 }
 function renderLinks() {
   const ls = D.edit.links;
-  $('fLinks').innerHTML = ls.map((l, i) => `<div class="link-row">
-    <input type="text" maxlength="20" placeholder="按鈕文字，例如：想買！點我！" value="${esc(l.title)}" oninput="D.edit.links[${i}].title=this.value;ruleDraft()">
+  $('fLinks').innerHTML = ls.map((l, i) => `<div class="link-card">
+    <div class="lc-head"><span>🔗 按鈕 ${i + 1}</span><a href="#" onclick="D.edit.links.splice(${i},1);renderLinks();ruleDraft();return false">✕ 移除</a></div>
+    <div class="lc-lab">按鈕上的字（最多 20 字）</div>
+    <input type="text" maxlength="20" placeholder="例如：想買！點我！" value="${esc(l.title)}" oninput="D.edit.links[${i}].title=this.value;ruleDraft()">
+    <div class="lc-lab">點了會打開的網址</div>
     <input type="url" placeholder="https://reurl.cc/..." value="${esc(l.url)}" oninput="D.edit.links[${i}].url=this.value;ruleDraft()">
-    <button class="btn small danger" onclick="D.edit.links.splice(${i},1);renderLinks();ruleDraft()">移除</button>
   </div>`).join('');
   $('fAddLink').classList.toggle('hidden', ls.length >= 3);
   rulePreview();
@@ -636,7 +655,8 @@ function getDT(p, defTime) {
 }
 function clearDT(p) { $(p + 'D').value = ''; $(p + 'T').value = ''; ruleDraft(); }
 ['reStartD', 'reStartT', 'reEndD', 'reEndT'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
-segBind('reState', () => { $('reActive').checked = segVal('reState') === 'on'; ruleDraft(); });
+function syncActive() { $('reActiveText').textContent = $('reActive').checked ? '開啟中' : '已暫停'; }
+$('reActive').addEventListener('change', syncActive);
 
 // 直接寫模式的 IG 預覽：照客人收到的順序排
 function rulePreview() {
@@ -680,11 +700,12 @@ function editRule(id, preset) {
   $('reAny').checked = !!r.any_text;
   setDT('reStart', r.starts_at);
   setDT('reEnd', r.ends_at);
-  segSet('reState', r.active !== false ? 'on' : 'off');
+
   $('reDel').classList.toggle('hidden', !id);
   syncAny();
   $('reCooldown').value = r.cooldown_hours ?? 24;
   $('reActive').checked = r.active !== false;
+  syncActive();
   $('reTemplate').innerHTML = '<option value="">（選一個私訊範本）</option>' + D.templates.map(t => `<option value="${t.id}" ${t.id === r.first_template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
   $('rePublic').innerHTML = D.replies.length ? D.replies.map(x => `<label class="check" style="margin-bottom:6px"><input type="checkbox" value="${x.id}" ${(r.public_reply_ids || []).includes(x.id) ? 'checked' : ''}> ${esc(x.text)}</label>`).join('') : '<div class="hint">回覆庫是空的，到「公開回覆庫」新增</div>';
   $('reErr').textContent = '';
