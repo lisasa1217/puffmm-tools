@@ -180,7 +180,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
   .rc .warn { font-size:12.5px; color:#b4540a; }
   .rc .nums { display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color: var(--muted); padding-bottom:10px; border-bottom:1px dashed #d9cbbd; }
   .rc .nums b { color:#5f4649; font-size:14px; margin-left:3px; }
-  .rc .acts3 { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
+  .rc .acts3 { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; }
   .sched { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
   .dt { display:grid; grid-template-columns: 1.4fr 1fr; gap:10px; align-items:center; }
   .dt-lab { font-size:13px; font-weight:700; color:#6a5153; margin-bottom:6px; }
@@ -508,6 +508,7 @@ function ruleCard(r) {
       <button class="btn small ghost" onclick="toggleRule(${r.id})">${r.active ? '暫停' : '啟用'}</button>
       <button class="btn small ghost" onclick="copyRule(${r.id})">複製</button>
       <button class="btn small ghost" onclick="editRule(${r.id})">編輯</button>
+      <button class="btn small danger" onclick="delRule(${r.id})">刪除</button>
     </div>
   </div>`;
 }
@@ -524,13 +525,24 @@ function copyRule(id) {
   const r = D.rules.find(x => x.id === id);
   editRule(null, { ...r, id: null, name: r.name + '（複製）', media_id: null, media_label: null, media_thumb: null, active: true, flow: { mode: 'tpl' } });
 }
-async function delRule() {
-  if (!D.edit?.id || !confirm('確定刪除這條規則？（私訊範本會保留）')) return;
+// 刪除規則：先確認；它專用的私訊內容（沒有別條規則在用的）一起刪
+async function delRule(id) {
+  id = id || D.edit?.id;
+  const r = D.rules.find(x => x.id === id);
+  if (!r) return;
+  if (!confirm(`確定要刪除「${r.name}」這條規則嗎？\n\n刪掉後就不會再自動回覆，也救不回來。`)) return;
+  const flow = flowFromRule(r);
   try {
-    await api('delete', { table: 'ar_rules', id: D.edit.id });
-    D.rules = D.rules.filter(x => x.id !== D.edit.id);
-    closeRule(true); renderRules();
-  } catch (e) { alert(e.message); }
+    await api('delete', { table: 'ar_rules', id });
+    D.rules = D.rules.filter(x => x.id !== id);
+    for (const tid of new Set(Object.values(flow?.ids || {}).filter(Boolean))) {
+      if (D.rules.some(x => x.first_template_id === tid)) continue;
+      await api('delete', { table: 'ar_templates', id: tid });
+      D.templates = D.templates.filter(t => t.id !== tid);
+    }
+    if (D.edit?.id === id) closeRule(true);
+    renderRules(); renderTpls();
+  } catch (e) { alert('刪除失敗：' + e.message); }
 }
 
 function segBind(id, cb) {
