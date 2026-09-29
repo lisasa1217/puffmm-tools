@@ -244,16 +244,25 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
         </div>
 
         <div id="reWrite" class="wgrid"><div>
-          <div class="flow">
+          <div class="field">
+            <label class="l">怎麼給連結</label>
+            <div class="seg" id="fStyle">
+              <button data-v="direct" class="on">🔗 第一則就給連結</button>
+              <button data-v="button">👆 先按按鈕再給</button>
+              <button data-v="gate">💗 有追蹤才給</button>
+            </div>
+            <div class="hint" id="fStyleHint"></div>
+          </div>
+          <div class="flow" id="fBox1">
             <h3><span class="no">1</span>客人觸發後，先收到這則</h3>
             <textarea id="f1Text">嗨嗨～謝謝你留言 💛
 點下面的按鈕拿連結 👇</textarea>
             <div style="margin-top:8px"><label class="l">按鈕文字（最多 20 字）</label><input type="text" id="f1Btn" maxlength="20" value="🔗 給我連結"></div>
-            <label class="check" style="margin-top:12px"><input type="checkbox" id="fGate" checked> 客人按按鈕時，先確認有追蹤我才給連結</label>
+            <input type="checkbox" id="fGate" hidden>
             <div class="arrow">↓ 客人按下按鈕後</div>
           </div>
           <div class="flow">
-            <h3><span class="no">2</span><span id="fAHead">有追蹤 → 給這則（團購介紹＋連結）</span></h3>
+            <h3><span class="no" id="fANo">2</span><span id="fAHead">有追蹤 → 給這則（團購介紹＋連結）</span></h3>
             <textarea id="fAText" placeholder="✨ KC SKIN 水凝多泌面膜 (~10/5)&#10;十月精華液就漲價囉～把握！"></textarea>
             <label class="l" style="margin-top:10px">連結按鈕（最多 3 顆）</label>
             <div id="fLinks"></div>
@@ -452,7 +461,11 @@ function ruleCard(r) {
   const now = Date.now();
   const n = ruleNums(r.id);
   const tags = [`<span class="pill">${TRIG_S[r.trigger]}</span>`];
-  if (ruleGate(r)) tags.push('<span class="pill gate">追蹤才給</span>');
+  const ft = D.templates.find(x => x.id === r.first_template_id);
+  const fb = (ft && ft.buttons) || [];
+  if (fb.some(b => b.type === 'gate')) tags.push('<span class="pill gate">追蹤才給</span>');
+  else if (fb.some(b => b.type === 'next')) tags.push('<span class="pill">按鈕後給</span>');
+  else if (fb.some(b => b.type === 'url')) tags.push('<span class="pill time">直接給連結</span>');
   if (!r.active) tags.push('<span class="pill pause">暫停中</span>');
   else if (r.starts_at && new Date(r.starts_at) > now) tags.push(`<span class="pill wait">還沒開始・${fmtT(r.starts_at)} 起</span>`);
   else if (r.ends_at && new Date(r.ends_at) <= now) tags.push('<span class="pill end">已結束</span>');
@@ -528,7 +541,7 @@ function ruleForm() {
   };
 }
 function flowForm() {
-  return { mode: segVal('reMode'), f1Text: $('f1Text').value, f1Btn: $('f1Btn').value, gate: $('fGate').checked,
+  return { mode: segVal('reMode'), style: segVal('fStyle'), f1Text: $('f1Text').value, f1Btn: $('f1Btn').value, gate: $('fGate').checked,
     aText: $('fAText').value, links: D.edit ? D.edit.links || [] : [], bText: $('fBText').value, bBtn: $('fBBtn').value };
 }
 function setFlow(f) {
@@ -536,7 +549,7 @@ function setFlow(f) {
   segSet('reMode', f.mode || 'write');
   if (f.f1Text !== undefined) $('f1Text').value = f.f1Text;
   if (f.f1Btn !== undefined) $('f1Btn').value = f.f1Btn;
-  if (f.gate !== undefined) $('fGate').checked = f.gate;
+  segSet('fStyle', f.style || (f.gate === undefined ? 'direct' : f.gate ? 'gate' : 'button'));
   if (f.aText !== undefined) $('fAText').value = f.aText;
   if (f.bText !== undefined) $('fBText').value = f.bText;
   if (f.bBtn !== undefined) $('fBBtn').value = f.bBtn;
@@ -547,9 +560,13 @@ function syncMode() {
   const w = segVal('reMode') === 'write';
   $('reWrite').classList.toggle('hidden', !w);
   $('reTplWrap').classList.toggle('hidden', w);
-  const g = $('fGate').checked;
-  $('fBBox').classList.toggle('hidden', !g);
-  $('fAHead').textContent = g ? '有追蹤 → 給這則（團購介紹＋連結）' : '按了按鈕 → 給這則（團購介紹＋連結）';
+  const st = segVal('fStyle');
+  $('fGate').checked = st === 'gate';
+  $('fBox1').classList.toggle('hidden', st === 'direct');
+  $('fBBox').classList.toggle('hidden', st !== 'gate');
+  $('fANo').textContent = st === 'direct' ? '1' : '2';
+  $('fAHead').textContent = { direct: '客人觸發後，直接收到這則（介紹＋連結按鈕）', button: '按了按鈕 → 給這則（介紹＋連結按鈕）', gate: '有追蹤 → 給這則（介紹＋連結按鈕）' }[st];
+  $('fStyleHint').textContent = { direct: '最直接：客人一觸發就收到介紹和連結按鈕，不用多按一步。', button: '第一則先打招呼、放一顆按鈕，客人按了才給連結（多一步互動，對話也會正式打開）。', gate: '客人按按鈕時系統先查有沒有追蹤你，有追蹤才給連結，沒追蹤就請他先追蹤。' }[st];
   rulePreview();
 }
 function renderLinks() {
@@ -564,32 +581,34 @@ function renderLinks() {
 }
 function addLink() { D.edit.links.push({ title: '', url: '' }); renderLinks(); ruleDraft(); }
 segBind('reMode', () => { syncMode(); ruleDraft(); });
-$('fGate').addEventListener('change', () => { syncMode(); ruleDraft(); });
+segBind('fStyle', () => { syncMode(); ruleDraft(); });
 ['f1Text', 'f1Btn', 'fAText', 'fBText', 'fBBtn'].forEach(id => $(id).addEventListener('input', () => ruleDraft()));
 
 // 「直接寫」模式：依序建好 A（給連結）→ B（沒追蹤）→ 第一則，把按鈕接起來
 async function buildFlow(name, f) {
   const save = async row => { const { row: r } = await api('save', { table: 'ar_templates', row }); D.templates.unshift(r); return r; };
   const A = await save({ name: `${name}｜給連結`, text: f.aText, buttons: f.links.map(l => ({ type: 'url', title: l.title.trim(), url: l.url.trim() })) });
+  if (f.style === 'direct') return A.id;
   let B = null;
-  if (f.gate) {
+  if (f.style === 'gate') {
     B = await save({ name: `${name}｜沒追蹤`, text: f.bText, buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id }] });
     B = (await api('save', { table: 'ar_templates', row: { id: B.id, buttons: [{ type: 'gate', title: f.bBtn.trim(), next: A.id, fail: B.id }] } })).row;
     D.templates = D.templates.map(t => (t.id === B.id ? B : t));
   }
-  const F = await save({ name: `${name}｜第一則`, text: f.f1Text, buttons: [{ type: f.gate ? 'gate' : 'next', title: f.f1Btn.trim(), next: A.id, fail: B ? B.id : null }] });
+  const F = await save({ name: `${name}｜第一則`, text: f.f1Text, buttons: [{ type: f.style === 'gate' ? 'gate' : 'next', title: f.f1Btn.trim(), next: A.id, fail: B ? B.id : null }] });
   return F.id;
 }
 function checkFlow(f) {
-  if (!f.f1Text.trim()) return '第 1 則要寫內容';
-  if (!f.f1Btn.trim()) return '第 1 則要有按鈕文字';
-  if (!f.aText.trim() && !f.links.length) return '第 2 則要寫內容或放連結';
-  if (f.aText.length > 640) return '第 2 則最多 640 字';
+  const d = f.style === 'direct';
+  if (!d && !f.f1Text.trim()) return '第 1 則要寫內容';
+  if (!d && !f.f1Btn.trim()) return '第 1 則要有按鈕文字';
+  if (!f.aText.trim() && !f.links.length) return (d ? '' : '第 2 則') + '要寫內容或放連結';
+  if (f.links.length && f.aText.length > 640) return (d ? '介紹' : '第 2 則') + '有按鈕時最多 640 字';
   for (const l of f.links) {
     if (!l.title.trim()) return '每顆連結按鈕都要有文字';
     if (!/^https?:\/\//.test(l.url.trim())) return `「${l.title}」要填 https:// 開頭的網址`;
   }
-  if (f.gate && (!f.bText.trim() || !f.bBtn.trim())) return '第 3 則（沒追蹤）要有內容和按鈕文字';
+  if (f.style === 'gate' && (!f.bText.trim() || !f.bBtn.trim())) return '第 3 則（沒追蹤）要有內容和按鈕文字';
   return '';
 }
 
@@ -630,9 +649,13 @@ function rulePreview() {
     h += `<div class="pv-step">💬 你在留言底下回（每次隨機挑一句）</div>`;
     h += picked.length ? `<div class="pv-cmt"><b>puff.andmom</b> ${esc(picked[0].replace(/\{name\}/g, '@客人'))}</div>` : '<div class="pv-cmt" style="color:#999">（沒有勾公開回覆）</div>';
   }
-  h += `<div class="pv-step">✉️ 私訊第 1 則</div>` + bub(f.f1Text, [f.f1Btn]);
-  h += `<div class="pv-step">${f.gate ? '👉 按了按鈕，而且有追蹤' : '👉 按了按鈕'}</div>` + bub(f.aText, f.links.map(l => l.title));
-  if (f.gate) h += `<div class="pv-step">👉 按了按鈕，但沒追蹤</div>` + bub(f.bText, [f.bBtn]);
+  if (f.style === 'direct') {
+    h += `<div class="pv-step">✉️ 私訊（觸發後直接收到）</div>` + bub(f.aText, f.links.map(l => l.title));
+  } else {
+    h += `<div class="pv-step">✉️ 私訊第 1 則</div>` + bub(f.f1Text, [f.f1Btn]);
+    h += `<div class="pv-step">${f.style === 'gate' ? '👉 按了按鈕，而且有追蹤' : '👉 按了按鈕'}</div>` + bub(f.aText, f.links.map(l => l.title));
+  }
+  if (f.style === 'gate') h += `<div class="pv-step">👉 按了按鈕，但沒追蹤</div>` + bub(f.bText, [f.bBtn]);
   $('rePreview').innerHTML = h;
 }
 
@@ -687,7 +710,7 @@ async function syncRuleForm() {
   $('reCooldownField').classList.toggle('hidden', t === 'comment');
   $('reTargetField').classList.toggle('hidden', t === 'dm');
   $('reTplHint').textContent = t === 'comment'
-    ? '留言觸發的第一則私訊 IG 只准送一次：建議範本裡放一顆按鈕，客人按了才能繼續傳下一則（也才能查追蹤）。'
+    ? 'IG 規定每則留言只能私訊一次，所以圖片會略過；要多聊幾句或查追蹤，就選「先按按鈕再給」或「有追蹤才給」。'
     : '客人回覆限動／私訊後 24 小時內都能傳，第一則就可以放連結按鈕和圖片。';
   $('reTargetLabel').textContent = t === 'story' ? '哪一則限動（只會列出 24 小時內的限動）' : '哪一篇貼文';
   $('reTargetHint').textContent = t === 'story' ? '選「全部限動」＝任何一則限動被回覆都會檢查關鍵字。' : '選「全部貼文」＝任何貼文都會檢查（不建議，容易亂觸發）。';
