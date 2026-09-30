@@ -13,6 +13,7 @@ async function readJson(req) {
 }
 
 module.exports = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');   // 後台資料一律不快取，免得看到已刪掉的舊資料
   const pass = process.env.AR_ADMIN_PASS;
   if (!pass || req.headers['x-pass'] !== pass) return res.status(401).json({ error: 'need_pass' });
   if (!process.env.SUPABASE_SERVICE_KEY) return res.status(500).json({ error: '還沒設定 SUPABASE_SERVICE_KEY' });

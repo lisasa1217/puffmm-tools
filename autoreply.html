@@ -427,8 +427,9 @@ const TRIG = { comment: '💬 貼文留言', story: '📱 限動回覆', dm: '�
 const KIND = { trigger: '觸發', dup: '重複略過', public_reply: '公開回覆', dm: '已私訊', button: '按按鈕', follow_yes: '有追蹤', follow_no: '沒追蹤', click: '點連結', error: '錯誤', queued: '排隊補發', public_skip: '只私訊（公開回覆滿額）' };
 
 async function api(action, body) {
-  const r = await fetch('/api/ar-admin?action=' + action, {
+  const r = await fetch('/api/ar-admin?action=' + action + '&_=' + Date.now(), {
     method: body ? 'POST' : 'GET',
+    cache: 'no-store',
     headers: { 'x-pass': load('ar_pass') || '', ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
