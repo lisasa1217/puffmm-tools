@@ -558,7 +558,10 @@ async function delRule(id) {
       D.templates = D.templates.filter(t => t.id !== tid);
     }
     if (D.edit?.id === id) closeRule(true);
-    renderRules(); renderTpls();
+    // 重新跟資料庫確認一次
+    Object.assign(D, await api('all'));
+    renderAll();
+    if (D.rules.some(x => x.id === id)) alert('刪除好像沒有成功，資料庫裡還有這條規則。請截圖給 Claude 看。');
   } catch (e) { alert('刪除失敗：' + e.message); }
 }
 

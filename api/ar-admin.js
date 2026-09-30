@@ -31,8 +31,11 @@ module.exports = async (req, res) => {
       const { table, row, id } = await readJson(req);
       if (!TABLES[table]) return res.status(400).json({ error: '不能改這張表' });
       if (action === 'delete') {
-        await db(`${table}?id=eq.${parseInt(id, 10)}`, { method: 'DELETE' });
-        return res.json({ ok: true });
+        const n = parseInt(id, 10);
+        if (!n) return res.status(400).json({ error: '缺少要刪除的編號' });
+        const gone = await db(`${table}?id=eq.${n}`, { method: 'DELETE', prefer: 'return=representation' });
+        if (!gone.length) return res.status(404).json({ error: `資料庫裡找不到編號 ${n}，可能已經刪過了` });
+        return res.json({ ok: true, deleted: gone.length });
       }
       const clean = {};
       for (const k of TABLES[table]) if (k in row) clean[k] = row[k];
