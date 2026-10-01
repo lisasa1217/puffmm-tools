@@ -51,7 +51,7 @@ async function template(id) {
   return rows[0] || null;
 }
 
-// 同一規則對同一人要不要再回：見下面（留言看有沒有互動過；限動/私訊依冷卻時間，預設 24 小時）
+// 同一規則對同一人要不要再回：見下面（留言看有沒有互動過；限動/私訊依冷卻時間，預設 1 小時）
 async function claim(rule, userId, mediaId) {
   // 留言：同一條規則換了貼文就算新的一次（key 帶貼文 id）；限動／私訊只看人
   const who = rule.trigger === 'comment' && mediaId ? `${userId}@${mediaId}` : userId;
@@ -65,7 +65,7 @@ async function claim(rule, userId, mediaId) {
       if (evs.length) return false;
       if ((Date.now() - new Date(rows[0].sent_at)) / 6e4 < 10) return false;
     } else {
-      const hrs = rule.cooldown_hours ?? 24;
+      const hrs = rule.cooldown_hours ?? 1;
       if ((Date.now() - new Date(rows[0].sent_at)) / 36e5 < hrs) return false;
     }
     await db(`ar_sent?rule_id=eq.${rule.id}&user_id=eq.${encodeURIComponent(who)}`, { method: 'PATCH', body: { sent_at: new Date().toISOString() } });

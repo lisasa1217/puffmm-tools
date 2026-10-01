@@ -327,7 +327,7 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
         </div>
         <div class="field" id="reCooldownField">
           <label class="l">同一個人多久內不重複回</label>
-          <div style="display:flex;gap:8px;align-items:center"><input type="number" id="reCooldown" min="0" value="24" style="width:90px"> <span style="font-size:13px">小時</span></div>
+          <div style="display:flex;gap:8px;align-items:center"><input type="number" id="reCooldown" min="0" value="1" style="width:90px"> <span style="font-size:13px">小時</span></div>
         </div>
         <div class="field">
           <label class="l">自動回覆開關</label>
@@ -763,7 +763,7 @@ function ruleDraft() {
 }
 function editRule(id, preset) {
   if (ruleDirty() && !confirm('正在編輯的規則還沒儲存，確定要放棄嗎？')) return;
-  let r = preset || (id ? D.rules.find(x => x.id === id) : { trigger: 'comment', keywords: [], fuzzy: true, public_reply_ids: [], cooldown_hours: 24, active: true });
+  let r = preset || (id ? D.rules.find(x => x.id === id) : { trigger: 'comment', keywords: [], fuzzy: true, public_reply_ids: [], cooldown_hours: 1, active: true });
   const dr = load('ar_draft_rule');
   let fromDraft = false;
   if (dr && (dr.id || null) === (id || null) && (dr.name || dr.keywords.length) && confirm('上次有還沒儲存的規則，要接回來繼續編輯嗎？')) { r = { ...r, ...dr, id: r.id }; fromDraft = true; }
@@ -780,7 +780,7 @@ function editRule(id, preset) {
 
   $('reDel').classList.toggle('hidden', !id);
   syncAny();
-  $('reCooldown').value = r.cooldown_hours ?? 24;
+  $('reCooldown').value = r.cooldown_hours ?? 1;
   $('reActive').checked = r.active !== false;
   syncActive();
   $('reTemplate').innerHTML = '<option value="">（選一個私訊範本）</option>' + D.templates.map(t => `<option value="${t.id}" ${t.id === r.first_template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
