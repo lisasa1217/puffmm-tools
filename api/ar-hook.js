@@ -53,6 +53,8 @@ async function template(id) {
 
 // 同一規則對同一人要不要再回：見下面（留言看有沒有互動過；限動/私訊依冷卻時間，預設 1 小時）
 async function claim(rule, userId, mediaId) {
+  // 測試用：cooldown_hours = -1 表示「同一個人可以一直重複觸發」，完全不擋
+  if (rule.cooldown_hours === -1) return true;
   // 留言：同一條規則換了貼文就算新的一次（key 帶貼文 id）；限動／私訊只看人
   const who = rule.trigger === 'comment' && mediaId ? `${userId}@${mediaId}` : userId;
   const rows = await db(`ar_sent?rule_id=eq.${rule.id}&user_id=eq.${encodeURIComponent(who)}&select=sent_at`);

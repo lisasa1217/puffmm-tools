@@ -325,6 +325,10 @@ IG 那邊的通知進 /api/ar-hook（webhook），按鈕連結走 /api/ar-go 記
           </div>
           <div class="hint">例如團購 10/1 開團、10/5 結團就填進去，時間到自動開始、自動停止，不用記得回來開關。</div>
         </div>
+        <div class="field">
+          <label class="check"><input type="checkbox" id="reRepeat"> 🧪 測試用：同一個人可以一直重複觸發</label>
+          <div class="hint">打勾＝這條規則不擋重複，方便你用小帳反覆測試。<b>測完記得取消</b>，不然客人留幾次言就會收到幾次私訊。</div>
+        </div>
         <div class="field" id="reCooldownField">
           <label class="l">同一個人多久內不重複回</label>
           <div style="display:flex;gap:8px;align-items:center"><input type="number" id="reCooldown" min="0" value="1" style="width:90px"> <span style="font-size:13px">小時</span></div>
@@ -499,6 +503,7 @@ function ruleCard(r) {
   if (fb.some(b => b.type === 'gate')) tags.push('<span class="pill gate">邀請追蹤</span>');
   else if (fb.some(b => b.type === 'next')) tags.push('<span class="pill">按鈕後給</span>');
   else if (fb.some(b => b.type === 'url')) tags.push('<span class="pill time">直接給連結</span>');
+  if (r.cooldown_hours === -1) tags.push('<span class="pill gate">🧪 可重複觸發</span>');
   if (!r.active) tags.push('<span class="pill pause">暫停中</span>');
   else if (r.starts_at && new Date(r.starts_at) > now) tags.push(`<span class="pill wait">還沒開始・${fmtT(r.starts_at)} 起</span>`);
   else if (r.ends_at && new Date(r.ends_at) <= now) tags.push('<span class="pill end">已結束</span>');
@@ -585,7 +590,7 @@ function ruleForm() {
     fuzzy: $('reFuzzy').checked,
     public_reply_ids: [...$('rePublic').querySelectorAll('input:checked')].map(x => +x.value),
     first_template_id: +$('reTemplate').value || null,
-    cooldown_hours: Math.max(0, parseInt($('reCooldown').value) || 0),
+    cooldown_hours: $('reRepeat').checked ? -1 : Math.max(0, parseInt($('reCooldown').value) || 0),
     active: $('reActive').checked,
     any_text: $('reAny').checked,
     starts_at: getDT('reStart', '00:00'),
@@ -780,7 +785,8 @@ function editRule(id, preset) {
 
   $('reDel').classList.toggle('hidden', !id);
   syncAny();
-  $('reCooldown').value = r.cooldown_hours ?? 1;
+  $('reRepeat').checked = r.cooldown_hours === -1;
+  $('reCooldown').value = r.cooldown_hours === -1 ? 1 : (r.cooldown_hours ?? 1);
   $('reActive').checked = r.active !== false;
   syncActive();
   $('reTemplate').innerHTML = '<option value="">（選一個私訊範本）</option>' + D.templates.map(t => `<option value="${t.id}" ${t.id === r.first_template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
@@ -802,12 +808,13 @@ function closeRule(force) {
 }
 ['reName', 'reKeywords', 'reFuzzy', 'reTemplate', 'reCooldown', 'reActive'].forEach(id => $(id).addEventListener('input', ruleDraft));
 $('rePublic').addEventListener('change', ruleDraft);
+$('reRepeat').addEventListener('change', () => { $('reCooldownField').classList.toggle('hidden', segVal('reTrigger') === 'comment' || $('reRepeat').checked); ruleDraft(); });
 
 async function syncRuleForm() {
   const t = segVal('reTrigger');
   D.edit.trigger = t;
   $('rePublicField').classList.toggle('hidden', t !== 'comment');
-  $('reCooldownField').classList.toggle('hidden', t === 'comment');
+  $('reCooldownField').classList.toggle('hidden', t === 'comment' || $('reRepeat').checked);
   $('reTargetField').classList.toggle('hidden', t === 'dm');
   $('reTplHint').textContent = t === 'comment'
     ? 'IG 規定每則留言只能私訊一次，所以圖片會略過；要多聊幾句或查追蹤，就選「先按按鈕再給」。'
