@@ -14,6 +14,7 @@
 //   comments → 某篇貼文的全部留言（media=ID）
 //   history  → 最近 N 篇貼文各有哪些人留過言（給「可疑抽獎帳」判斷用）
 //   refresh  → 續期 token（排程用）
+//   insights-test → 測試 token 有沒有洞察報告權限（只回拿不拿得到，不回數字）
 
 const GRAPH = 'https://graph.instagram.com/v23.0';
 const SUPABASE_URL = 'https://nkoclwpfugtaepwpgnwl.supabase.co';
@@ -162,6 +163,49 @@ module.exports = async (req, res) => {
         users,
         errors: [...new Set(errors)].slice(0, 3),
       });
+    }
+
+    // 測試用：這顆 token 拿不拿得到成效數字（洞察報告權限）。只回「拿不拿得到」，不回實際數字。
+    if (action === 'insights-test') {
+      const tryMetric = async (path) => {
+        try {
+          const j = await ig(path, token);
+          return { ok: true, hasValue: Array.isArray(j.data) ? j.data.length > 0 : true };
+        } catch (e) { return { ok: false, error: String(e.message).slice(0, 160) }; }
+      };
+      const probe = async (id, metrics) => {
+        const out = {};
+        await Promise.all(metrics.map(async (m) => { out[m] = await tryMetric(`/${id}/insights?metric=${m}`); }));
+        return out;
+      };
+      const media = (await ig('/me/media?fields=id,media_type,media_product_type,timestamp&limit=15', token)).data || [];
+      const reel = media.find(m => m.media_product_type === 'REELS');
+      const result = { reel: null, story: null, account: {} };
+      if (reel) {
+        let hasVideoUrl = false;
+        try { hasVideoUrl = !!(await ig(`/${reel.id}?fields=media_url`, token)).media_url; } catch (e) { /* 拿不到就是 false */ }
+        result.reel = {
+          timestamp: reel.timestamp, hasVideoUrl,
+          metrics: await probe(reel.id, ['reach', 'views', 'likes', 'comments', 'shares', 'saved', 'total_interactions',
+            'ig_reels_avg_watch_time', 'ig_reels_video_view_total_time', 'follows', 'profile_visits']),
+        };
+      }
+      let stories = [];
+      try { stories = (await ig('/me/stories?fields=id,media_type,timestamp,caption', token)).data || []; }
+      catch (e) { result.storyError = String(e.message).slice(0, 160); }
+      result.liveStories = stories.length;
+      if (stories[0]) {
+        result.story = {
+          timestamp: stories[0].timestamp, hasCaption: !!stories[0].caption,
+          metrics: await probe(stories[0].id, ['reach', 'views', 'replies', 'navigation', 'shares', 'follows',
+            'profile_visits', 'total_interactions', 'link_clicks', 'sticker_taps']),
+        };
+      }
+      try { result.account.followersCount = (await ig('/me?fields=followers_count', token)).followers_count != null; }
+      catch (e) { result.account.followersCount = false; }
+      result.account.dailyReach = await tryMetric('/me/insights?metric=reach&period=day');
+      result.account.followerCountDaily = await tryMetric('/me/insights?metric=follower_count&period=day');
+      return res.json(result);
     }
 
     return res.status(400).json({ error: '未知的 action' });
