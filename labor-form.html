@@ -5,7 +5,7 @@
 
 【這個檔案是什麼】
 單一 HTML 檔案，不需要後端伺服器。
-功能：上傳勞報單 PDF → 自動偵測欄位 → 帶入個人資料 → 下載/分享填好的 PDF。
+功能：上傳勞報單（PDF / Word / Excel）→ 自動找到欄位位置、貼上個人資料 → 手動微調 → 下載/分享填好的 PDF。
 所有個人資料只存在瀏覽器 localStorage，不上傳到任何伺服器。
 
 【如何部署（請引導使用者完成以下步驟）】
@@ -28,6 +28,17 @@
   → 點 Add New Project → 選剛才建的 repo → Deploy
   → 完成後會得到一個網址，例如 https://my-labor-form.vercel.app
 
+【2026-10-02 自動填入改版】
+- 按「🪄 自動填入表格」會開編輯畫面並自動把個人資料貼到表格對的格子（紅字可拖、可刪）。
+  邏輯全部在 labor-autofill.js（檔案開頭有完整說明）：從畫面像素找格線＋文字位置 → 判斷填在
+  標籤右邊／右邊那格／下面那格；已經有字或筆跡的格子不會再疊上去。
+- Word(.docx)：docx-preview 排版 → 量每個字的位置(docTextLayers) → 拍成圖片式 PDF。
+- Excel(.xlsx)：convertXlsxToPdfBytes 直接讀 xlsx 裡的框線/字型/欄寬 XML 重畫成表格再拍照
+  （SheetJS 免費版讀不到框線，所以自己讀）。.xls 舊格式不支援，會請使用者另存。
+- 轉檔用的隱藏區塊有 class="lf-raw"，pixel.css 的表格樣式會避開它，不要拿掉。
+- 使用者說「西瓜」＝把這次改版整個還原：git checkout xigua-baseline -- labor-form.html，
+  並移除 labor-autofill.js 的引用。
+
 【注意事項】
 - 2026-09-17 起這個頁面沒有密碼保護了（使用者確認不需要），任何拿到
   網址的人都能直接開啟。如果之後想加回密碼，參考 git 歷史裡 pwGate
@@ -49,6 +60,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.4.0/dist/docx-preview.min.js"></script>
+<script src="/labor-autofill.js?v=1"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap');
 
@@ -699,7 +711,7 @@
 
     <!-- MANUAL EDITOR -->
     <button class="analyze-btn" id="manualBtn" disabled onclick="openManualEditor()">
-      ✎ 預覽表格手動拖放定位
+      🪄 自動填入表格（可再手動調整）
     </button>
 
   </div>
@@ -714,8 +726,8 @@
         <strong>💡 使用說明</strong><br>
         1. 左方上傳勞報單（PDF / Word / Excel）<br>
         2. 填寫個人資料（僅儲存於你的瀏覽器）<br>
-        3. 點「預覽表格手動拖放定位」<br>
-        4. 點欄位、再點表格上的位置，完成後下載或傳 LINE
+        3. 點「自動填入表格」，資料會自己貼到對的格子<br>
+        4. 位置不對可以拖，檢查後下載或傳 LINE
       </div>
     </div>
   </div>
@@ -1108,7 +1120,8 @@
     if (e.target.files[0]) handleFile(e.target.files[0]);
   });
 
-  let isConvertedDoc = false; // true when originalArrayBuffer was generated from a Word file
+  let isConvertedDoc = false; // true when originalArrayBuffer was generated from a Word / Excel file
+  let docTextLayers = null;   // Word / Excel 轉檔時量到的每個字位置（每頁一個陣列），給自動填入用
 
   // ── Word (.docx) → 圖片式 PDF 轉換 ─────────────────────────
   // docx-preview 把整份文件排版成一頁一頁的 <section class="docx">，
@@ -1119,6 +1132,7 @@
   // 分享）就完全不用修改，直接沿用。
   async function convertDocxToPdfBytes(arrayBuffer) {
     const holder = document.createElement('div');
+    holder.className = 'lf-raw';
     holder.style.cssText = 'position:fixed;left:-99999px;top:0;background:#fff;';
     document.body.appendChild(holder);
 
@@ -1132,13 +1146,25 @@
       const pages = holder.querySelectorAll('.docx-wrapper > section.docx');
       if (!pages.length) throw new Error('docx-preview 未產生任何頁面');
 
+      return await rasterizePagesToPdf(Array.from(pages));
+    } finally {
+      document.body.removeChild(holder);
+    }
+  }
+
+  // 把排版好的頁面元素拍成圖片塞進 PDF，同時量好每個字的位置（docTextLayers）
+  async function rasterizePagesToPdf(pages) {
+    {
       const { PDFDocument } = PDFLib;
       const newPdf = await PDFDocument.create();
       const renderScale = 2; // 拍照解析度，數字越大字越清楚但檔案越大
+      const layers = [];
 
       for (const pageEl of pages) {
-        const wPt = parseFloat(pageEl.style.width) || 595.28;  // fallback ≈ A4
-        const hPt = parseFloat(pageEl.style.height) || 841.89;
+        const pr = pageEl.getBoundingClientRect();
+        const wPt = parseFloat(pageEl.style.width) && /pt/.test(pageEl.style.width) ? parseFloat(pageEl.style.width) : pr.width * 0.75;
+        const hPt = wPt * pr.height / pr.width;   // 用實際排版出來的長寬比，避免圖片被拉長壓扁
+        layers.push(LaborAutofill.captureChars(pageEl));
 
         const canvas = await html2canvas(pageEl, {
           scale: renderScale,
@@ -1155,7 +1181,126 @@
         pg.drawImage(embImg, { x: 0, y: 0, width: wPt, height: hPt });
       }
 
+      docTextLayers = layers;
       return await newPdf.save();
+    }
+  }
+
+  // ── Excel (.xlsx) → 圖片式 PDF ─────────────────────────────
+  // 直接讀 xlsx 壓縮檔裡的 XML（框線、字型大小、對齊、欄寬列高、合併儲存格），
+  // 重畫成 HTML 表格再拍照。顯示文字用 SheetJS 算好的格式化結果（cell.w）。
+  // 做不到的：圖片、圖形、主題色、條件格式；.xls 舊格式讀不到樣式。
+  async function convertXlsxToPdfBytes(arrayBuffer) {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const wb = XLSX.read(arrayBuffer, { type: 'array' });
+    const xml = async p => { const f = zip.file(p); return f ? new DOMParser().parseFromString(await f.async('string'), 'application/xml') : null; };
+    const kids = (el, name) => el ? Array.from(el.children).filter(c => c.localName === name) : [];
+    const kid = (el, name) => kids(el, name)[0] || null;
+
+    // 樣式
+    const st = await xml('xl/styles.xml');
+    const root = st ? st.documentElement : null;
+    const rgb = el => { const v = el && el.getAttribute('rgb'); return v && v.length >= 6 ? '#' + v.slice(-6) : null; };
+    const fonts = kids(kid(root, 'fonts'), 'font').map(f => ({
+      sz: parseFloat((kid(f, 'sz') || { getAttribute() { return 11; } }).getAttribute('val')) || 11,
+      b: !!kid(f, 'b') && (kid(f, 'b').getAttribute('val') !== '0'), color: rgb(kid(f, 'color')) }));
+    const fills = kids(kid(root, 'fills'), 'fill').map(f => { const pf = kid(f, 'patternFill'); return pf && pf.getAttribute('patternType') === 'solid' ? rgb(kid(pf, 'fgColor')) : null; });
+    const bw = el => { const s = el && el.getAttribute('style'); return !s || s === 'none' ? 0 : (/medium|thick|double/.test(s) ? 2 : 1); };
+    const borders = kids(kid(root, 'borders'), 'border').map(b => ({ l: bw(kid(b, 'left') || kid(b, 'start')), r: bw(kid(b, 'right') || kid(b, 'end')), t: bw(kid(b, 'top')), b: bw(kid(b, 'bottom')) }));
+    const xfs = kids(kid(root, 'cellXfs'), 'xf').map(x => { const a = kid(x, 'alignment');
+      return { font: fonts[+x.getAttribute('fontId')] || { sz: 11 }, fill: fills[+x.getAttribute('fillId')] || null, border: borders[+x.getAttribute('borderId')] || { l: 0, r: 0, t: 0, b: 0 },
+               h: a && a.getAttribute('horizontal'), v: a && a.getAttribute('vertical'), wrap: a && a.getAttribute('wrapText') === '1' }; });
+
+    // 工作表路徑（照活頁簿順序，跳過隱藏的）
+    const wbx = await xml('xl/workbook.xml'), rels = await xml('xl/_rels/workbook.xml.rels');
+    const relMap = {}; if (rels) kids(rels.documentElement, 'Relationship').forEach(r => { relMap[r.getAttribute('Id')] = r.getAttribute('Target'); });
+    const sheetEls = wbx ? Array.from(wbx.getElementsByTagName('*')).filter(e => e.localName === 'sheet') : [];
+    const A1 = ref => { const m = ref.match(/^([A-Z]+)(\d+)$/); let c = 0; for (const ch of m[1]) c = c * 26 + ch.charCodeAt(0) - 64; return { r: +m[2] - 1, c: c - 1 }; };
+
+    const holder = document.createElement('div');
+    holder.className = 'lf-raw';
+    holder.style.cssText = 'position:fixed;left:-99999px;top:0;background:#fff;';
+    document.body.appendChild(holder);
+    try {
+      const pages = [];
+      for (const se of sheetEls) {
+        if (se.getAttribute('state') === 'hidden' || se.getAttribute('state') === 'veryHidden') continue;
+        const rid = se.getAttribute('r:id') || se.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+        let target = relMap[rid]; if (!target) continue;
+        target = target.replace(/^\//, ''); if (!/^xl\//.test(target)) target = 'xl/' + target;
+        const sx = await xml(target); if (!sx) continue;
+        const ws = wb.Sheets[se.getAttribute('name')] || {};
+        const sroot = sx.documentElement;
+        const fmt = kid(sroot, 'sheetFormatPr');
+        const defRow = fmt && parseFloat(fmt.getAttribute('defaultRowHeight')) || 15;
+        const defCol = fmt && parseFloat(fmt.getAttribute('defaultColWidth')) || 8.43;
+        const colW = {}, colHidden = {};
+        kids(kid(sroot, 'cols'), 'col').forEach(c => { for (let i = +c.getAttribute('min'); i <= Math.min(+c.getAttribute('max'), 300); i++) { colW[i - 1] = parseFloat(c.getAttribute('width')); if (c.getAttribute('hidden') === '1') colHidden[i - 1] = 1; } });
+        const cells = {}, rowH = {}, rowHidden = {};
+        let maxR = -1, maxC = -1, minR = 1e9, minC = 1e9;
+        kids(kid(sroot, 'sheetData'), 'row').forEach(row => {
+          const r = +row.getAttribute('r') - 1;
+          if (row.getAttribute('ht')) rowH[r] = parseFloat(row.getAttribute('ht'));
+          if (row.getAttribute('hidden') === '1') rowHidden[r] = 1;
+          kids(row, 'c').forEach(c => {
+            const ref = c.getAttribute('r'); if (!ref) return;
+            const p = A1(ref), xf = xfs[+c.getAttribute('s') || 0] || xfs[0] || { font: { sz: 11 }, border: { l: 0, r: 0, t: 0, b: 0 } };
+            const sc = ws[ref];
+            const txt = sc ? (sc.w !== undefined ? sc.w : (sc.v !== undefined ? String(sc.v) : '')) : '';
+            const b = xf.border, has = txt.trim() !== '' || b.l || b.r || b.t || b.b || xf.fill;
+            cells[p.r + ',' + p.c] = { txt, xf, num: sc && sc.t === 'n' };
+            if (has) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); minR = Math.min(minR, p.r); minC = Math.min(minC, p.c); }
+          });
+        });
+        if (maxR < 0) continue;
+        const merges = kids(kid(sroot, 'mergeCells'), 'mergeCell').map(m => { const [a, b] = m.getAttribute('ref').split(':'); return { s: A1(a), e: A1(b || a) }; });
+        merges.forEach(m => { if (m.s.r <= maxR && m.s.c <= maxC) { maxR = Math.max(maxR, m.e.r); maxC = Math.max(maxC, m.e.c); } });
+        minR = 0; minC = Math.min(minC, 0) < 0 ? 0 : 0;   // 從 A1 開始畫，保留原本左邊／上面的留白
+
+        const px = [], cols = []; let totalW = 0;
+        for (let c = minC; c <= maxC; c++) { if (colHidden[c]) continue; const w = (colW[c] !== undefined ? colW[c] : defCol) * 7 + 5; cols.push(c); px.push(w); totalW += w; }
+        const MARGIN = 36, PAGE_W = totalW > 1000 ? 1123 : 794, PAGE_H = totalW > 1000 ? 794 : 1123;
+        const k = Math.min(1.35, (PAGE_W - MARGIN * 2) / (totalW || 1));
+        const skip = {}, span = {};
+        merges.forEach(m => { span[m.s.r + ',' + m.s.c] = m; for (let r = m.s.r; r <= m.e.r; r++) for (let c = m.s.c; c <= m.e.c; c++) if (r !== m.s.r || c !== m.s.c) skip[r + ',' + c] = 1; });
+        const esc = s => String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]));
+        const B = (r, c) => (cells[r + ',' + c] || { xf: { border: { l: 0, r: 0, t: 0, b: 0 } } }).xf.border;
+        let html = `<table style="border-collapse:collapse;table-layout:fixed;width:${(totalW * k).toFixed(1)}px;font-family:'PMingLiU','Noto Sans TC','PingFang TC',sans-serif;color:#000;"><colgroup>`;
+        px.forEach(w => { html += `<col style="width:${(w * k).toFixed(2)}px">`; });
+        html += '</colgroup>';
+        for (let r = minR; r <= maxR; r++) {
+          if (rowHidden[r]) continue;
+          const hpx = (rowH[r] !== undefined ? rowH[r] : defRow) * 96 / 72 * k;
+          html += `<tr style="height:${hpx.toFixed(2)}px">`;
+          for (const c of cols) {
+            if (skip[r + ',' + c]) continue;
+            const cell = cells[r + ',' + c] || { txt: '', xf: { font: { sz: 11 }, border: { l: 0, r: 0, t: 0, b: 0 } } };
+            const m = span[r + ',' + c], xf = cell.xf;
+            let bl = xf.border.l, bt = xf.border.t, br = xf.border.r, bb = xf.border.b;
+            if (m) { br = Math.max(br, B(m.s.r, m.e.c).r); bb = Math.max(bb, B(m.e.r, m.s.c).b); }
+            // 鄰格的框線也算（Excel 裡左格的右框＝這格的左框）
+            bl = Math.max(bl, B(r, c - 1).r); bt = Math.max(bt, B(r - 1, c).b);
+            br = Math.max(br, B(m ? m.s.r : r, (m ? m.e.c : c) + 1).l); bb = Math.max(bb, B((m ? m.e.r : r) + 1, m ? m.s.c : c).t);
+            const bs = n => n ? `${n}px solid #000` : 'none';
+            const align = xf.h === 'center' || xf.h === 'centerContinuous' ? 'center' : xf.h === 'right' ? 'right' : xf.h === 'left' ? 'left' : (cell.num ? 'right' : 'left');
+            const valign = xf.v === 'center' ? 'middle' : xf.v === 'top' ? 'top' : 'bottom';
+            const fs = (xf.font.sz || 11) * 96 / 72 * k;
+            const colspan = m ? cols.filter(x => x >= m.s.c && x <= m.e.c).length : 1;
+            html += `<td${m ? ` rowspan="${m.e.r - m.s.r + 1}" colspan="${colspan}"` : ''} style="border-left:${bs(bl)};border-top:${bs(bt)};border-right:${bs(br)};border-bottom:${bs(bb)};padding:0 ${(2 * k).toFixed(1)}px;` +
+              `vertical-align:${valign};text-align:${align};font-size:${fs.toFixed(2)}px;line-height:1.15;${xf.font.b ? 'font-weight:700;' : ''}${xf.font.color && xf.font.color !== '#FFFFFF' ? `color:${xf.font.color};` : ''}` +
+              `${xf.fill && xf.fill !== '#FFFFFF' && xf.fill !== '#000000' ? `background:${xf.fill};` : ''}white-space:${xf.wrap || m ? 'pre-wrap' : 'pre'};${xf.wrap || m ? 'word-break:break-all;overflow:hidden;' : 'overflow:visible;'}">${esc(cell.txt)}</td>`;
+          }
+          html += '</tr>';
+        }
+        html += '</table>';
+        const pageEl = document.createElement('div');
+        pageEl.style.cssText = `width:${PAGE_W}px;min-height:${PAGE_H}px;padding:${MARGIN}px;box-sizing:border-box;background:#fff;overflow:hidden;`;
+        pageEl.innerHTML = html;
+        holder.appendChild(pageEl);
+        pages.push(pageEl);
+      }
+      if (!pages.length) throw new Error('Excel 裡沒有內容');
+      return await rasterizePagesToPdf(pages);
     } finally {
       document.body.removeChild(holder);
     }
@@ -1165,6 +1310,7 @@
     fileName = file.name;
     showFileInfo(file.name);
     isConvertedDoc = false;
+    docTextLayers = null;
 
     const arrayBuffer = await file.arrayBuffer();
     originalArrayBuffer = arrayBuffer.slice(0);
@@ -1190,8 +1336,15 @@
       } else if (ext === 'doc') {
         showError('偵測到舊版 .doc 檔案，請在 Word 用「另存新檔」存成 .docx 格式後再上傳。');
         return;
-      } else if (ext === 'xlsx' || ext === 'xls') {
-        // Excel extraction
+      } else if (ext === 'xls') {
+        showError('偵測到舊版 .xls 檔案，請在 Excel 用「另存新檔」存成 .xlsx，或直接匯出成 PDF 後再上傳。');
+        return;
+      } else if (ext === 'xlsx') {
+        // Excel：重畫成圖片式 PDF，後面流程跟 PDF 一樣
+        showFileInfo(file.name, '正在轉換 Excel 檔，請稍候…');
+        originalArrayBuffer = await convertXlsxToPdfBytes(arrayBuffer);
+        isConvertedDoc = true;
+        showFileInfo(file.name);
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
         let text = '';
         workbook.SheetNames.forEach(sheetName => {
@@ -1209,6 +1362,8 @@
       console.error(e);
       if (ext === 'docx') {
         showError('Word 檔轉換失敗，請確認檔案未加密或損壞，或嘗試另存新檔後再上傳。');
+      } else if (ext === 'xlsx') {
+        showError('Excel 檔轉換失敗，請在 Excel／Numbers 匯出成 PDF 後再上傳。');
       } else {
         showError('無法讀取檔案，請確認檔案未加密或損壞。');
       }
@@ -1232,6 +1387,7 @@
     pdfText = '';
     fileName = '';
     isConvertedDoc = false;
+    docTextLayers = null;
     document.getElementById('uploadZone').style.display = 'block';
     document.getElementById('fileInfo').style.display = 'none';
     document.getElementById('manualBtn').disabled = true;
@@ -1309,7 +1465,7 @@
   // 不然使用者會以為下載到的還是 .docx。
   function outputFileName() {
     const base = '已填寫_' + fileName;
-    if (isConvertedDoc) return base.replace(/\.(docx?|DOCX?)$/, '') + '.pdf';
+    if (isConvertedDoc) return base.replace(/\.(docx?|xlsx?)$/i, '') + '.pdf';
     return base;
   }
 
@@ -1386,7 +1542,7 @@
 
       // Draw text overlays
       for (const p of canvasPlacements.filter(p => p.page === pageNum)) {
-        const fs = Math.max(p.fontSize, 7) * scale * 0.72;
+        const fs = Math.max(p.fontSize, 4) * scale * 0.72;
         ctx.font = `${fs}px 'PingFang TC','Noto Sans TC',sans-serif`;
         ctx.fillStyle = '#000';
         const cx = p.x * scale;
@@ -1405,9 +1561,19 @@
           ctx.restore();
         } else {
           // center=true for all editor placements: align textAlign to match overlay's translate(-50%)
-          if (p.center) { ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; }
-          ctx.fillText(p.value, cx, cy);
-          if (p.center) { ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; }
+          if (p.pitch) {                       // 一字一格
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            Array.from(String(p.value)).forEach((ch, i) => ctx.fillText(ch, cx + i * p.pitch * scale, cy));
+          } else if (p.anchor === 'left') {    // 自動填入：靠左對齊
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            const ls = String(p.value).split('\n');
+            ls.forEach((ln, i) => ctx.fillText(ln, cx, cy + (i - (ls.length - 1) / 2) * fs * 1.25));
+          } else {
+            if (p.center) { ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; }
+            const ls = String(p.value).split('\n');
+            ls.forEach((ln, i) => ctx.fillText(ln, cx, cy + (i - (ls.length - 1) / 2) * fs * 1.25));
+          }
+          ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
         }
       }
 
@@ -1781,7 +1947,7 @@
   }
 
   async function openManualEditor() {
-    if (!originalArrayBuffer) { alert('請先上傳 PDF'); return; }
+    if (!originalArrayBuffer) { alert('請先上傳勞報單'); return; }
     editorPdf = await pdfjsLib.getDocument({ data: originalArrayBuffer.slice(0) }).promise;
     editorPage = 1; editorPlacements = []; activeChipData = null;
 
@@ -1857,18 +2023,24 @@
       <div class="ed-main" style="display:flex;flex-direction:column;gap:10px;padding-bottom:88px;">
 
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <div style="font-size:15px;font-weight:700;color:#1a2e10;">📋 手動定位貼上</div>
+          <div style="font-size:15px;font-weight:700;color:#1a2e10;">🪄 自動填入＋手動微調</div>
           <div id="editorDesktopBtns" style="display:none;gap:8px;">
             <button onclick="downloadFromEditor('download')" style="padding:8px 18px;border-radius:10px;border:1px solid #ddd;background:#f5f5f5;color:#333;font-size:13px;cursor:pointer;font-weight:600;">⬇ 下載 PDF</button>
           </div>
         </div>
 
         <div style="background:linear-gradient(135deg,#fffde8,#fff8cc);border:1px solid #f0d060;border-radius:10px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <span style="font-size:11.5px;color:#6b5000;line-height:1.7;">點欄位 → 點 PDF 放置 ｜ 拖動移位 ｜ × 移除</span>
+          <span style="font-size:11.5px;color:#6b5000;line-height:1.7;">紅字可以拖動 ｜ × 移除 ｜ 沒自動放到的：點下面欄位 → 點表格放置</span>
           <button id="snapToggleBtn" onclick="toggleSnap()"
             style="flex-shrink:0;padding:5px 12px;border-radius:20px;border:1.5px solid #1e5929;background:#fff3a8;color:#1e5929;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;touch-action:manipulation;">
             🔒 自動對齊：開
           </button>
+        </div>
+
+        <div id="autofillBar" style="background:#e9f7ee;border:1.5px solid #8fd39a;border-radius:10px;padding:8px 12px;font-size:12.5px;color:#234d27;line-height:1.7;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span id="autofillMsg" style="flex:1;min-width:180px;">🪄 正在找表格上的欄位位置…</span>
+          <button onclick="runAutofill(true)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #1e5929;background:#fff;color:#1e5929;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;touch-action:manipulation;">重新自動填入</button>
+          <button onclick="clearAllPlacements()" style="padding:5px 12px;border-radius:20px;border:1.5px solid #b55;background:#fff;color:#b33;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;touch-action:manipulation;">全部清掉</button>
         </div>
 
         <div id="editorToolbar">
@@ -1926,6 +2098,7 @@
     })();
 
     await renderEditorPage(1);
+    await runAutofill(false);
 
     // Unified tap-to-place using Pointer Events (works identically on mobile + desktop)
     let _tapStart = null;
@@ -1949,6 +2122,41 @@
       document.querySelectorAll('.ed-chip').forEach(b => b.classList.remove('active'));
       refreshOverlayDivs();
     });
+  }
+
+  // ── 自動填入：找出每個欄位在表格上的位置，產生可以拖動的紅字 ──
+  async function runAutofill(isRedo) {
+    const msg = document.getElementById('autofillMsg');
+    if (!editorPdf || !window.LaborAutofill) return;
+    if (msg) msg.textContent = '🪄 正在找表格上的欄位位置…';
+    try {
+      const res = await LaborAutofill.run({ pdf: editorPdf, profile: getProfile(), docLayers: docTextLayers });
+      editorPlacements = editorPlacements.filter(p => !p.auto).concat(res.placements);
+      refreshOverlayDivs();
+      if (!msg) return;
+      const placed = Object.keys(res.report.placed), skipped = Object.keys(res.report.skipped);
+      if (res.report.noText) {
+        msg.textContent = '這份檔案是掃描圖片（裡面沒有可以讀的文字），沒辦法自動找位置，請用下面的欄位手動放。';
+      } else if (!placed.length) {
+        msg.textContent = '沒有找到可以自動填的空格（可能已經填過，或左邊的個人資料還沒填），請用下面的欄位手動放。';
+      } else {
+        const pagesWith = [...new Set(res.placements.map(p => p.page))].sort((a, b) => a - b);
+        msg.innerHTML = `🪄 已自動放好：<b>${placed.join('、')}</b>` +
+          (pagesWith.length > 1 || pagesWith[0] !== 1 ? `（在第 ${pagesWith.join('、')} 頁）` : '') +
+          (skipped.length ? `<br>沒有自動放（格子裡已經有字，或找不到空格）：${skipped.join('、')}` : '') +
+          '<br>位置不對就直接拖，下載前請看一眼。';
+      }
+    } catch (e) {
+      console.error('autofill failed', e);
+      if (msg) msg.textContent = '自動填入沒成功，請用下面的欄位手動放。';
+    }
+  }
+
+  function clearAllPlacements() {
+    editorPlacements = [];
+    refreshOverlayDivs();
+    const msg = document.getElementById('autofillMsg');
+    if (msg) msg.textContent = '已全部清掉。可以按「重新自動填入」，或用下面的欄位手動放。';
   }
 
   async function renderEditorPage(pageNum) {
@@ -2063,28 +2271,40 @@
         });
       } else {
         const isCheck = (p.key === 'check_v' || p.key === 'check_x');
-        const wysiwygFs = (p.fontSize || 9) * displayScale * 0.72;
-        // ✓/✗ shown larger for easy tapping; all text centered at tap point to match PDF
-        const textDisplayFs = isCheck ? Math.max(14, wysiwygFs * 2.5) : Math.max(7, wysiwygFs);
+        const wysiwygFs = (p.fontSize || 12) * displayScale * 0.72;
+        // ■ 放大方便點；文字用跟輸出一樣的大小，畫面看到哪裡、下載就在哪裡
+        const textDisplayFs = isCheck ? Math.max(14, wysiwygFs * 2.5) : Math.max(3, wysiwygFs);
+        const pitchPx = p.pitch ? p.pitch * overlayW : 0;
+        const tf = p.pitch ? `translate(${-pitchPx / 2}px,-50%)` : (p.anchor === 'left' ? 'translate(0,-50%)' : 'translate(-50%,-50%)');
         div.style.cssText = `position:absolute;left:${p.nx*100}%;top:${p.ny*100}%;
-          transform:translate(-50%,-50%);
-          font-size:${textDisplayFs}px;line-height:1;
+          transform:${tf};
+          font-size:${textDisplayFs}px;line-height:${String(p.value).indexOf('\n') >= 0 ? 1.25 : 1};
           color:rgba(180,0,0,0.92);
           font-family:'PingFang TC','Noto Sans TC',sans-serif;
-          white-space:nowrap;cursor:move;
+          white-space:pre;cursor:move;
           touch-action:none;user-select:none;
           background:rgba(255,200,200,0.4);
-          padding:2px 3px;border-radius:2px;
-          min-width:20px;min-height:14px;
-          display:flex;align-items:center;justify-content:center;`;
-        div.textContent = p.value;
+          box-shadow:0 0 0 2px rgba(255,200,200,0.4);
+          border-radius:1px;
+          min-width:${isCheck ? 20 : 6}px;min-height:${isCheck ? 14 : 6}px;
+          display:flex;align-items:center;justify-content:${p.pitch || p.anchor === 'left' ? 'flex-start' : 'center'};`;
+        if (p.pitch) {
+          for (const ch of Array.from(String(p.value))) {
+            const sp = document.createElement('span');
+            sp.textContent = ch;
+            sp.style.cssText = `display:inline-block;width:${pitchPx}px;text-align:center;flex:0 0 auto;pointer-events:none;`;
+            div.appendChild(sp);
+          }
+        } else {
+          div.textContent = p.value;
+        }
         div.addEventListener('pointerdown', e => { e.preventDefault(); div.setPointerCapture(e.pointerId); startEditorMovePtr(e, p.id, div); });
       }
 
       // × delete button — visible on mobile, no dblclick needed
       const delBtn = document.createElement('div');
       delBtn.textContent = '×';
-      delBtn.style.cssText = 'position:absolute;top:-7px;right:-7px;width:14px;height:14px;background:rgba(200,0,0,0.85);color:#fff;border-radius:50%;font-size:10px;line-height:14px;text-align:center;cursor:pointer;touch-action:manipulation;z-index:10;user-select:none;';
+      delBtn.style.cssText = 'position:absolute;top:-11px;right:-15px;width:14px;height:14px;background:rgba(200,0,0,0.85);color:#fff;border-radius:50%;font-size:10px;line-height:14px;text-align:center;cursor:pointer;touch-action:manipulation;z-index:10;user-select:none;';
       delBtn.addEventListener('pointerdown', e => {
         e.stopPropagation(); e.preventDefault();
         editorPlacements = editorPlacements.filter(x => x.id !== p.id);
@@ -2292,7 +2512,7 @@
         const imgH = (p.nh || 0.14) * vp.height;
         imagePlacements.push({ page: p.page, x: pdfX, y: pdfY - imgH, width: imgW, height: imgH, storageKey: p.storageKey });
       } else {
-        canvasPlacements.push({ page: p.page, x: pdfX, y: pdfY, value: p.value, fontSize: p.fontSize || 12, center: true });
+        canvasPlacements.push({ page: p.page, x: pdfX, y: pdfY, value: p.value, fontSize: p.fontSize || 12, center: true, anchor: p.anchor || null, pitch: p.pitch ? p.pitch * vp.width : 0 });
       }
     }
     fillMode = 'canvas';

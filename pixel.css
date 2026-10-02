@@ -144,8 +144,9 @@ input:focus, select:focus, textarea:focus {
 label { color: var(--o) !important; }
 
 /* ── 表格 / 標籤 ──────────────────────────────── */
-table th { color: var(--muted) !important; border-bottom: 2px solid var(--o) !important; }
-table td { border-bottom: 2px dashed rgba(106,81,83,.25) !important; }
+/* .lf-raw = 勞報單把 Word／Excel 排版後拍照用的隱藏區塊，不能被像素風樣式影響 */
+table th:not(.lf-raw th) { color: var(--muted) !important; border-bottom: 2px solid var(--o) !important; }
+table td:not(.lf-raw td) { border-bottom: 2px dashed rgba(106,81,83,.25) !important; }
 .badge, .chip, .pill, .tag {
   box-shadow: 0 -2px 0 0 var(--o), 0 2px 0 0 var(--o), -2px 0 0 0 var(--o), 2px 0 0 0 var(--o);
   border: 0 !important;
