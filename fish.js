@@ -1,9 +1,11 @@
 /* ==========================================================
-   首頁小金魚缸（養成小遊戲）
-   - 像素風 canvas：金魚、水草、氣泡、沙地、石頭
-   - 餵食（按鈕或直接點水裡）→ 金魚游過去吃 → 累積吃的次數長大（Lv.1→2→3）
-   - 飽足度會隨時間下降（約 16 小時掉到最低），太餓金魚會慢慢沉到底部、動作變慢
-   - 資料只存在這台裝置的 localStorage（key: puff_fish_v1），不上傳
+   首頁小池塘（養成小遊戲）
+   - 像素風 canvas：蝌蚪 → 長腳 → 變青蛙，水草、氣泡、沙地、石頭
+   - 餵食（按鈕或直接點水裡）→ 游過去吃 → 累積吃的次數長大
+     Lv.1 蝌蚪（0-4 次）→ Lv.2 長腳蝌蚪（5-14 次）→ Lv.3 青蛙（15+ 次）
+   - 飽足度會隨時間下降（約 16 小時掉到最低），太餓會慢慢沉到底部、動作變慢
+   - 資料只存在這台裝置的 localStorage（key: puff_pet_v1），不上傳
+   - 2026-10-02：原本是金魚，使用者要求換成蝌蚪養成，整個換掉（不是加第二隻）
    ========================================================== */
 (function () {
   var cv = document.getElementById('fishCanvas');
@@ -14,10 +16,10 @@
   var H = 54;             // 水缸邏輯高度 → 108 CSS px
   var SAND = 8;           // 沙地高度
   var W = 0;
-  var KEY = 'puff_fish_v1';
+  var KEY = 'puff_pet_v1';
 
   /* ── 存檔 ─────────────────────────────── */
-  var S = { name: '小金', fed: 0, hunger: 70, t: Date.now() };
+  var S = { name: '小蝌', fed: 0, hunger: 70, t: Date.now() };
   try {
     var raw = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (raw && typeof raw === 'object') S = Object.assign(S, raw);
@@ -31,15 +33,32 @@
 
   function levelOf(n) { return n >= 15 ? 3 : n >= 5 ? 2 : 1; }
 
-  /* ── 精靈圖 ───────────────────────────── */
+  /* ── 精靈圖：三個成長階段，各自 body(8寬) + tail/legs(4寬) = 12寬 x 7高 ── */
   var PAL = { k: '#d9773a', O: '#ffa85c', L: '#ffd7a3', e: '#6a5153',
-              g: '#8fd39a', G: '#62b57d', R: '#cfc8e0', r: '#b3abc9', d: '#a99fc0',
-              y: '#ffd96b', w: '#ffffff' };
-  var BODY = ['..kkkk..', '.kOOOOk.', 'kOOLLOOk', 'kOOLLeOk', 'kOOOOOOk', '.kOOOOk.', '..kkkk..'];
-  var TAIL_A = ['..k.', '.kOk', 'kOOk', 'kOOO', 'kOOk', '.kOk', '..k.'];
-  var TAIL_B = ['....', '..k.', '.kOk', 'kOOO', '.kOk', '..k.', '....'];
-  function fishRows(tail) { return BODY.map(function (b, i) { return tail[i] + b; }); }
-  var FISH_A = fishRows(TAIL_A), FISH_B = fishRows(TAIL_B);
+              g: '#8fd39a', G: '#62b57d', R: '#cfc8e0', r: '#b3abc9', d: '#4a5a3a',
+              y: '#ffd96b', w: '#ffffff', m: '#eaf7d6', p: '#ee8fb1' };
+  function fishRows(body, tail) { return body.map(function (b, i) { return tail[i] + b; }); }
+
+  // Lv.1 蝌蚪：圓滾滾身體 + 細長擺動的尾巴
+  var TADPOLE_BODY = ['..dddd..', '.dmmmmd.', 'dmmmmmmd', 'dmemmemd', 'dmmmmmmd', '.dmmmmd.', '..dddd..'];
+  var TADPOLE_TAIL_A = ['....', '.d..', '..d.', '...d', '..d.', '.d..', '....'];
+  var TADPOLE_TAIL_B = ['....', '...d', '..d.', '.d..', '..d.', '...d', '....'];
+
+  // Lv.2 長腳蝌蚪：身體轉綠，尾巴變短，後腳冒出來
+  var FROGLET_BODY = ['..gggg..', '.gmmmmg.', 'gmmmmmmg', 'gmemmemg', 'gmmmmmmg', 'GgmmmmgG', '..gggg..'];
+  var FROGLET_TAIL_A = ['....', '....', '.d..', '..d.', '.d..', '....', '....'];
+  var FROGLET_TAIL_B = ['....', '....', '..d.', '.d..', '..d.', '....', '....'];
+
+  // Lv.3 青蛙：尾巴消失，換成一對會踢水的後腳
+  var FROG_BODY = ['..gggg..', '.gmmmmg.', 'gmemmemg', 'gmmmmmmg', 'gmmppmmg', '.gmmmmg.', '..gggg..'];
+  var FROG_LEGS_A = ['....', '.GG.', '.gg.', '.gg.', '.gg.', '.GG.', '....'];
+  var FROG_LEGS_B = ['G..G', 'G..G', '.gg.', '.gg.', '.gg.', 'G..G', 'G..G'];
+
+  function spriteSet(level) {
+    if (level >= 3) return { a: fishRows(FROG_BODY, FROG_LEGS_A), b: fishRows(FROG_BODY, FROG_LEGS_B) };
+    if (level === 2) return { a: fishRows(FROGLET_BODY, FROGLET_TAIL_A), b: fishRows(FROGLET_BODY, FROGLET_TAIL_B) };
+    return { a: fishRows(TADPOLE_BODY, TADPOLE_TAIL_A), b: fishRows(TADPOLE_BODY, TADPOLE_TAIL_B) };
+  }
 
   var WEED_A = ['..g..', '.gG..', '..gG.', '..g..', '.gG..', '..gG.', '..g..', '.gG..', '..g..', '..G..'];
   var WEED_B = WEED_A.map(function (r, i) { return i % 4 < 2 ? '.' + r.slice(0, 4) : r; });
@@ -159,7 +178,8 @@
     var after = levelOf(S.fed);
     if (after > before) {
       sparks.push({ t: 1.6 });
-      say('長大啦！Lv.' + after + ' ✨', 3200);
+      var msg = after === 2 ? '長出後腳囉！Lv.2 🐸' : after === 3 ? '變成青蛙啦！Lv.3 🐸' : '長大啦！Lv.' + after + ' ✨';
+      say(msg, 3200);
     } else say(S.name + ' 吃得好開心 ♥', 1600);
     updateUI();
   }
@@ -227,7 +247,8 @@
     var f = fishSize();
     ctx.globalAlpha = S.hunger < 30 ? 0.75 : 1;
     var by = fish.y + Math.sin(fish.bob * 3) * 0.8;
-    drawRows(fish.tail ? FISH_B : FISH_A, fish.x, by, f.s, fish.dir < 0);
+    var sp = spriteSet(levelOf(S.fed));
+    drawRows(fish.tail ? sp.b : sp.a, fish.x, by, f.s, fish.dir < 0);
     ctx.globalAlpha = 1;
     // 升級火花
     sparks.forEach(function (sp, i) {
