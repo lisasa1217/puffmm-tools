@@ -14,10 +14,13 @@
 //   comments → 某篇貼文的全部留言（media=ID）
 //   history  → 最近 N 篇貼文各有哪些人留過言（給「可疑抽獎帳」判斷用）
 //   refresh  → 續期 token（排程用）
+//   reels-insights → 最近 N 支 Reels 的成效＋影片網址（要帶 x-ig-key，分析程式每天叫一次）
 //   insights-test → 測試 token 有沒有洞察報告權限（只回拿不拿得到，不回數字）
 
 const GRAPH = 'https://graph.instagram.com/v23.0';
 const SUPABASE_URL = 'https://nkoclwpfugtaepwpgnwl.supabase.co';
+// reels-insights 用的密鑰指紋（SHA-256）。密鑰本體在 ~/Claude/IG數據分析/puffandmom-ig-analysis/pipeline/.ig_api_key
+const INSIGHTS_KEY_SHA256 = '2342d8b842614eb4b04493d87036a916553f33c07763c2b531e694dd34d01729';
 
 async function getToken() {
   const key = process.env.SUPABASE_SERVICE_KEY;
@@ -163,6 +166,34 @@ module.exports = async (req, res) => {
         users,
         errors: [...new Set(errors)].slice(0, 3),
       });
+    }
+
+    // 給分析程式每天自動抓 Reels 成效用（她電腦上的 pipeline/stage_api.py 會來叫）。
+    // 成效數字不公開：要帶 x-ig-key，這裡只存密鑰的 SHA-256 指紋，密鑰本體只在她電腦上。
+    if (action === 'reels-insights') {
+      const crypto = require('crypto');
+      const got = crypto.createHash('sha256').update(String(req.headers['x-ig-key'] || '')).digest('hex');
+      if (got !== INSIGHTS_KEY_SHA256) return res.status(401).json({ error: 'unauthorized' });
+      const n = Math.min(Math.max(parseInt(req.query.n || '40', 10) || 40, 1), 120);
+      const all = await igAll('/me/media?fields=id,caption,media_type,media_product_type,media_url,permalink,timestamp&limit=50', token, 400);
+      const reels = all.filter(m => m.media_product_type === 'REELS').slice(0, n);
+      const METRICS = 'reach,views,likes,comments,shares,saved,total_interactions,ig_reels_avg_watch_time,ig_reels_video_view_total_time';
+      const out = [];
+      let i = 0;
+      async function worker() {
+        while (i < reels.length) {
+          const m = reels[i++];
+          const row = { id: m.id, caption: m.caption || '', permalink: m.permalink, timestamp: m.timestamp, media_url: m.media_url || '', metrics: {} };
+          try {
+            const j = await igRetry(`/${m.id}/insights?metric=${METRICS}`, token);
+            for (const d of j.data || []) row.metrics[d.name] = d.values?.[0]?.value ?? d.total_value?.value ?? null;
+          } catch (e) { row.error = String(e.message).slice(0, 160); }
+          out.push(row);
+        }
+      }
+      await Promise.all([worker(), worker(), worker(), worker()]);
+      out.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+      return res.json({ reels: out });
     }
 
     // 測試用：這顆 token 拿不拿得到成效數字（洞察報告權限）。只回「拿不拿得到」，不回實際數字。
